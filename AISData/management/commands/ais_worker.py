@@ -49,8 +49,6 @@ class Command(BaseCommand):
         # self.stdout.write(self.style.WARNING("Waiting 5 seconds for Channels Layer setup..."))
         # time.sleep(5) 
         
-        
-        # 【修改】外层无限循环
         while True:
             try:
                 # 1. 查找所有 CSV 文件并按文件名（时间）排序
@@ -96,6 +94,10 @@ class Command(BaseCommand):
                         self.stdout.write(self.style.WARNING(f"File {latest_file} is empty or invalid after parsing. Skipping."))
                         processed_files.add(latest_file) # 即使跳过，也要标记为已处理
                         continue
+
+                    # 将数据存储到Redis中
+                    cache.set('latest_ais_data_raw', ais_data, timeout=15)
+                    self.stdout.write(self.style.SUCCESS("已更新系统公共变量: latest_ais_data_raw"))
                         
                     # 5. 构造并发送消息到 Channels 群组
                     async_to_sync(channel_layer.group_send)(
