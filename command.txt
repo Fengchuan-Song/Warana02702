@@ -1,0 +1,4 @@
+$env:DJANGO_SETTINGS_MODULE="WanAna02702.settings"
+daphne WanAna02702.asgi:application
+
+python manage.py ais_worker

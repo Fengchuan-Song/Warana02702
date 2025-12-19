@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>融合预警</title>
+    
+    <script type="text/javascript" 
+            src="https://webapi.amap.com/maps?v=2.0&key=74a1c6075952477f257002e0664092d6&plugin=AMap.MouseTool"></script>
+
+    <style>
+        /* ==================== CSS 样式 ==================== */
+        :root {
+            /* 海洋蓝主题变量 */
+            --color-primary: #007BFF;
+            --color-background-dark: #0C101B;
+            --color-sidebar-dark: #1A2035;
+            --color-text-light: #A0AEC0;
+            --color-warning-yellow: #FFC107;
+            --color-success-green: #48BB78;
+            --color-alert-red: #E53E3E;
+            
+            /* 面板尺寸变量 */
+    		--panel-width: 20vw; /* 展开宽度 20% */
+            --toolbar-width: 45px; /* 左侧工具栏宽度 */
+        }
+
+        /* 基础重置与大屏字体优化 */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--color-text-light);
+        }
+
+        body, html {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* 整体布局：Flexbox */
+        .gis-dashboard-layout {
+            display: flex;
+            height: 100vh;
+            background-color: var(--color-background-dark);
+            position: relative;
+        }
+
+        /* 1. 左侧固定工具栏 */
+        #left-toolbar {
+            width: var(--toolbar-width);
+            height: 100%;
+            background-color: var(--color-sidebar-dark);
+            border-right: 1px solid rgba(0, 123, 255, 0.2);
+            padding-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 30; 
+        }
+        
+        .toolbar-icon {
+            width: 80%;
+            padding: 10px 0;
+            margin-bottom: 10px;
+            text-align: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background-color 0.2s, color 0.2s;
+            color: var(--color-text-light);
+            border: 1px solid transparent;
+        }
+        
+        .toolbar-icon:hover {
+            background-color: rgba(160, 174, 192, 1);
+        }
+        
+        .toolbar-icon:hover .icon-label {
+            color: #000000;
+        }
+        
+        .toolbar-icon.active {
+            background-color: var(--color-primary);
+            color: white;
+        }
+        
+        .toolbar-icon .icon-label {
+            display: block;
+            margin-top: 5px;
+            font-size: 1.1rem;
+        }
+
+        /* 2. 独立侧边面板容器 */
+        .side-panel-container {
+            position: absolute;
+            top: 0;
+            left: var(--toolbar-width); 
+            width: var(--panel-width);
+            height: 100%;
+            background-color: var(--color-sidebar-dark);
+            border-right: 1px solid rgba(0, 123, 255, 0.2);
+            z-index: 25;
+            
+            transform: translateX(-100%); 
+            transition: transform 0.3s ease-out;
+            
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 4px 0 12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .side-panel-container.active {
+            transform: translateX(0); 
+        }
+        
+        /* 3. 地图容器 */
+		#map-container {
+		    position: relative;
+		    height: 100%;
+		    flex-grow: 1; 
+            /* margin-left: var(--toolbar-width); */
+		}
+		
+        /* ==================== 船舶目标列表面板 (List Panel) ==================== */
+        .sidebar-header h2 {
+            color: var(--color-primary); 
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+
+        .ship-list {
+            list-style: none;
+            padding: 0;
+            font-size: 1rem;
+        }
+
+        .ship-item {
+            padding: 10px 0; 
+            border-bottom: 1px dashed rgba(160, 174, 192, 0.1); 
+            transition: background-color 0.2s;
+            cursor: pointer;
+            font-size: 0.95rem; 
+        }
+
+        .ship-item:hover, .ship-item.active {
+            background-color: transparent; 
+            color: white; 
+        }
+        
+        .ship-status-icon {
+            display: inline-block;
+            width: 8px; 
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        
+        /* ==================== 图层配置面板样式 (保持不变) ==================== */
+        #config-panel-container > div:first-child { 
+            color: white; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--color-primary);
+        }
+        .option-section {
+            margin-bottom: 20px; padding: 10px 0;
+        }
+        .option-section h3 {
+            color: var(--color-primary); font-size: 1rem; font-weight: bold; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px dashed rgba(160, 174, 192, 0.2);
+        }
+        .option-item {
+            display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 0.95rem;
+        }
+        .map-tiles-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px 0;
+        }
+        .tile-option {
+            text-align: center; border: 2px solid transparent; padding: 5px; cursor: pointer; transition: border-color 0.2s; background: rgba(26, 32, 53, 0.6); border-radius: 4px; position: relative;
+        }
+        .tile-option.active { border-color: var(--color-primary); }
+        .tile-option img {
+            width: 100%; height: 60px; object-fit: cover; display: block; margin-bottom: 5px; border-radius: 2px;
+        }
+        .info-buttons-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 0;
+        }
+        .info-button {
+            padding: 8px 5px; border: none; border-radius: 4px; background-color: rgba(0, 123, 255, 0.4); color: white; cursor: pointer; font-size: 0.8rem; position: relative; white-space: nowrap; 
+        }
+        .badge {
+            position: absolute; top: -5px; right: -5px; background-color: var(--color-alert-red); color: white; border-radius: 50%; padding: 2px 5px; font-size: 0.7rem; min-width: 20px; text-align: center; line-height: 1;
+        }
+
+        /* ==================== 功能选项面板样式 (Function Panel - 确保未修改) ==================== */
+        /* 模块分组标题 */
+        .option-section h3 {
+            color: var(--color-primary); 
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px dashed rgba(160, 174, 192, 0.2);
+        }
+        /* 选项行样式 */
+        .option-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            font-size: 1.1rem;
+        }
+        /* 拨动开关样式 */
+        .switch-input { display: none; }
+        .switch-control { display: inline-block; }
+        .switch-slider {
+            position: relative; display: inline-block; width: 44px; height: 24px; 
+            background-color: var(--color-text-light); border-radius: 24px; transition: background-color 0.4s; cursor: pointer;
+        }
+        .switch-slider::before {
+            content: ""; position: absolute; height: 18px; width: 18px; 
+            left: 3px; bottom: 3px; background-color: var(--color-sidebar-dark); border-radius: 50%; transition: transform 0.4s;
+        }
+        .switch-input:checked + .switch-slider { background-color: var(--color-success-green); }
+        .switch-input:checked + .switch-slider::before { transform: translateX(20px); }
+        /* 详情链接样式 */
+        .detail-trigger {
+            color: var(--color-warning-yellow); font-size: 0.95rem; cursor: pointer; margin-right: 15px;
+            padding: 3px 8px; border: 1px solid var(--color-warning-yellow); border-radius: 4px; display: none; 
+        }
+        
+        /* ==================== 新增：模态窗口样式 ==================== */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none; 
+            justify-content: center;
+            align-items: center;
+            z-index: 100; /* 确保在最上层 */
+        }
+
+        .modal-content {
+            background-color: var(--color-sidebar-dark);
+            border: 2px solid var(--color-primary);
+            border-radius: 8px;
+            padding: 25px;
+            width: 50vw; /* 调整宽度以适应大屏 */
+            min-width: 450px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .modal-content h3 {
+            color: var(--color-primary);
+            margin-bottom: 15px;
+            font-size: 1.6rem;
+            border-bottom: 1px solid rgba(0, 123, 255, 0.2);
+            padding-bottom: 10px;
+        }
+
+        .modal-content .close-button {
+            float: right;
+            font-size: 1.8rem;
+            cursor: pointer;
+            color: var(--color-text-light);
+            line-height: 1;
+        }
+        
+        .modal-details-container {
+            background: #0C101B; 
+            padding: 15px; 
+            border-radius: 4px; 
+            max-height: 40vh; 
+            overflow-y: auto;
+            border: 1px solid rgba(160, 174, 192, 0.1);
+        }
+        
+        .modal-details-list li {
+            padding: 8px 0; 
+            border-bottom: 1px dashed rgba(160, 174, 192, 0.1);
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .modal-details-list li:last-child {
+            border-bottom: none;
+        }
+        
+        /* 新增：可点击的 MMSI 样式 */
+        .clickable-mmsi {
+            color: var(--color-warning-yellow); /* 黄色文字 */
+            text-decoration: underline; /* 下划线 */
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .clickable-mmsi:hover {
+            color: var(--color-primary); /* 悬停时变蓝 */
+        }
+        
+        /* ==================== 新增：船舶信息窗口 (InfoWindow) 样式 ==================== */
+        .ship-info-window {
+            padding: 10px 15px;
+            background-color: var(--color-sidebar-dark);
+            border: 1px solid var(--color-primary);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+            min-width: 200px;
+            max-width: 300px;
+            font-size: 0.9rem;
+            position: relative; /* 确保子元素的绝对定位基于此容器 */
+        }
+        .ship-info-window h4 {
+            color: white;
+            margin-bottom: 5px;
+            font-size: 1.2rem;
+            border-bottom: 1px dashed rgba(160, 174, 192, 0.2);
+            padding-bottom: 5px;
+            padding-right: 20px; /* 为关闭按钮留出空间 */
+        }
+        
+        /* 【新增样式：关闭按钮】 */
+        .ship-info-window .close-btn {
+            position: absolute;
+            top: 5px; /* 略微向下调整 */
+            right: 10px;
+            font-size: 1.4rem;
+            color: var(--color-text-light);
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        
+        .ship-info-window .close-btn:hover {
+            color: var(--color-alert-red); /* 悬停时变红 */
+        }
+        
+        .ship-info-window p {
+            margin: 3px 0;
+            color: var(--color-text-light);
+        }
+        .sensor-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+            padding-top: 5px;
+            border-top: 1px dashed rgba(160, 174, 192, 0.2);
+        }
+        .sensor-options span {
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+            white-space: nowrap;
+        }
+        /* 可用/已开启/有结果 */
+        .active-option {
+            background-color: var(--color-primary);
+            color: white;
+            cursor: pointer;
+        }
+        .active-option:hover {
+            background-color: #0056b3;
+        }
+        /* 不可用/模型关闭/无结果 */
+        .inactive-option {
+            background-color: rgba(160, 174, 192, 0.1);
+            color: var(--color-text-light);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        /* 悬浮组件基础样式 */
+        .overlay-card {
+            position: absolute;
+            z-index: 10;
+            padding: 10px 15px;
+            margin: 10px;
+            border-radius: 8px;
+            background: rgba(26, 32, 53, 0.8); 
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(0, 123, 255, 0.5);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+    </style>
+</head>
+
+<body>
+    <div class="gis-dashboard-layout">
+        
+        <div id="left-toolbar">
+            <div id="btn-list" class="toolbar-icon active" onclick="togglePanel('list-panel-container')">
+                🚢<span class="icon-label">船舶追踪</span>
+            </div>
+            <div id="btn-config" class="toolbar-icon" onclick="togglePanel('config-panel-container')">
+                ⚙️<span class="icon-label">图层配置</span>
+            </div>
+            <div id="btn-function" class="toolbar-icon" onclick="togglePanel('function-panel-container')">
+                🛠️<span class="icon-label">功能选项</span>
+            </div>
+        </div>
+
+        <div id="list-panel-container" class="side-panel-container active">
+            <div class="sidebar-header">
+                <h2>船舶目标列表</h2>
+                <input type="text" placeholder="搜索船名/MMSI..." style="width:100%; padding: 8px; margin-bottom: 15px; background: #0C101B; border: 1px solid var(--color-primary);">
+            </div>
+            <ul id="ship-list" class="ship-list">
+                </ul>
+        </div>
+        
+        <div id="config-panel-container" class="side-panel-container">
+            
+            <div style="color: white; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--color-primary);">底图与图层</div>
+
+            <div class="option-section">
+                <h3>绘船模式</h3>
+                <div class="option-item">
+                    <span>默认</span>
+                    <input type="radio" name="drawMode" value="default" checked>
+                </div>
+                <div class="option-item">
+                    <span>IMO</span>
+                    <input type="radio" name="drawMode" value="imo">
+                </div>
+            </div>
+
+            <div class="option-section">
+                <h3>底图</h3>
+                <div class="map-tiles-grid">
+                    <div class="tile-option active">
+                        <img src="https://picsum.photos/80/60?random=1" alt="地图">
+                        <span>地图</span>
+                    </div>
+                    <div class="tile-option">
+                        <img src="https://picsum.photos/80/60?random=2" alt="卫星图">
+                        <span>卫星图</span>
+                    </div>
+                    <div class="tile-option">
+                        <img src="https://picsum.photos/80/60?random=3" alt="全球海图">
+                        <span>全球海图</span>
+                        <div class="badge">更新</div>
+                    </div>
+                    <div class="tile-option">
+                        <img src="https://picsum.photos/80/60?random=4" alt="海陆图">
+                        <span>海陆图</span>
+                    </div>
+                    <div class="tile-option">
+                        <img src="https://picsum.photos/80/60?random=5" alt="AVCS Online">
+                        <span>AVCS Online</span>
+                    </div>
+                    <div class="tile-option">
+                        <img src="https://picsum.photos/80/60?random=6" alt="海图">
+                        <span>海图</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="option-section">
+                <h3>信息/图层</h3>
+                <div class="info-buttons-grid">
+                    <button class="info-button">全部船舶</button>
+                    <button class="info-button">AIS航标</button>
+                    <button class="info-button">港口</button>
+                    <button class="info-button">海区预报</button>
+                    <button class="info-button">当前台风</button>
+                    <button class="info-button">台风预警线</button>
+                    <button class="info-button">历史台风</button>
+                </div>
+            </div>
+
+        </div>
+        
+        <div id="function-panel-container" class="side-panel-container">
+            
+            <div style="color: white; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--color-primary);">AI 功能控制</div>
+
+            <div class="option-section">
+                <h3>多源泛在感知数据融合</h3>
+                
+                <div class="option-item">
+                    <span>视觉/AIS数据融合</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="fusion-vis-ais-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="fusion-vis-ais">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>AIS/雷达数据融合</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="fusion-ais-radar-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="fusion-ais-radar">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>无人机端视觉/AIS数据融合</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="fusion-uav-vis-ais-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="fusion-uav-vis-ais">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>可见光/红外视觉数据融合</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="fusion-vis-inf-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="fusion-vis-inf">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>星基SAR/AIS数据融合</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="fusion-sar-ais-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="fusion-sar-ais">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+
+            </div>
+            
+            <div class="option-section">
+                <h3>船舶违法事件检测</h3>
+                
+                <div class="option-item">
+                    <span>关闭AIS船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-ais-off-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-ais-off">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>身份伪造船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-spoofing-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-spoofing">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>海上走私船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-smuggling-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-smuggling">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>高速快艇检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-highSpeedBoat-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-highSpeedBoat">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>超载船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-overload-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-overload">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法捕捞船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalFishing-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalFishing">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>盗采海砂船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalSandMining-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalSandMining">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法养殖检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalFarming-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalFarming">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法排污船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalPollutionDis-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalPollutionDis">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法驻留船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalStaying-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalStaying">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>异常徘徊船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-abnormalWandering-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-abnormalWandering">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>异常停泊船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-abnormalStaying-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-abnormalStaying">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法抛锚船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalAnchored-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalAnchored">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>海上围栏越界船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-CrossingBoundary-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-CrossingBoundary">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>双拖船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-doubleDragging-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-doubleDragging">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>异常接驳船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-abnormalTransfer-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-abnormalTransfer">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>偏离航道船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-deviation-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-deviation">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>船舶碰撞检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-collision-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-collision">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>黑名单船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-blackList-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-blackList">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>低速船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-lowSpeedBoat-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-lowSpeedBoat">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-item">
+                    <span>非法搭靠船舶检测</span>
+                    <div style="display: flex; align-items: center;">
+                        <span id="detect-illegalBerthing-count" class="detail-trigger"></span>
+                        <label class="switch-control">
+                            <input type="checkbox" class="switch-input" name="detect-illegalBerthing">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+            </div>
+
+        </div>
+
+
+        <div id="map-container">
+            <div id="amap-instance" style="width: 100%; height: 100%;"></div>
+
+            <div id="overview-cards" class="overlay-card" style="position: absolute; top: 20px; left: 20px;">
+                <div class="data-card" style="border-right: 1px solid rgba(0, 123, 255, 0.5);">
+                    <div class="card-label">船舶总数</div>
+                    <div id="total-ships" class="card-value">128</div>
+                </div>
+                <div class="data-card" style="color: var(--color-alert-red);">
+                    <div class="card-label">异常/告警</div>
+                    <div id="alert-ships" class="card-value">5</div>
+                </div>
+            </div>
+
+            <div id="map-tools" class="overlay-card" style="position: absolute; top: 20px; right: 20px; display: flex; gap: 10px;">
+                <button class="tool-button" id="btn-draw-fence" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🌐 绘制围栏</button>
+                <button class="tool-button" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🔥 热力图</button>
+                <button class="tool-button" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🛰️ 卫星图</button>
+            </div>
+
+            <div id="playback-controls" class="overlay-card" style="position: absolute; display: none; bottom: 20px; left: 50%; transform: translateX(-50%);">
+                <button class="tool-button" id="btn-play">▶️ 播放</button>
+                </div>
+        </div>
+    </div>
+    
+    <div id="detail-modal" class="modal-overlay" onclick="closeDetailModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="close-button" onclick="closeDetailModal()">×</span>
+            <h3 id="modal-title">功能详情</h3>
+            <p id="modal-summary" style="margin-bottom: 15px; font-size: 1.1rem; color: var(--color-warning-yellow);"></p>
+            <div id="modal-details" class="modal-details-container">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== JAVASCRIPT 逻辑 (WebSocket 实现) ====================
+
+        let map = null; 
+        let shipData = []; // shipData 现在将由 WebSocket 实时更新
+        let shipMarkers = []; 
+        const CRITICAL_ZOOM_LEVEL = 11;
+        let shipInfoWindow = null; 
+        let detectionResults = {};
+
+        // 【新增】WebSocket 实例
+        let ws = null;
+
+        let isAbnormalParkingDetectionActive = false;
+        let isAbnormalTransferDetectionActive = false;
+        let isAbnormalWanderingDetectionActive = false;
+        let isBlacklistDetectionActive = false;
+        let isCollisionDetectionActive = false;
+        let isDeviationDetectionActive = false;
+        let isDoubleDraggingDetectionActive = false;
+        let isCrossingBoundaryDetectionActive = false;
+        let isForgeryDetectionActive = false;
+        let isHighSpeedBoatDetectionActive = false;
+        let isIllegalAnchoredDetectionActive = false;
+        let isIllegalBerthingDetectionActive = false;
+        let isIllegalFarmingDetectionActive = false;
+        let isIllegalFishingDetectionActive = false;
+        let isIllegalPolutionDisDetectionActive = false;
+        let isIllegalSandMiningDetectionActive = false;
+        let isIllegalStayingDetectionActive = false;
+        let isLowSpeedDetectionActive = false;
+        let isOverloadDetectionActive = false;
+        let isSmugglingDetectionActive = false;
+
+        /**/
+        let loopCount = 0;
+
+        
+        // Marker Icon SVG URL (保持不变)
+        const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
+        const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
+
+        // ----------------- 【新增核心函数】WebSocket 初始化 -----------------
+        function initWebSocket() {
+            // 确保使用与当前页面匹配的协议 (ws:// 或 wss://)
+            const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // ** 替换为您的 Django 服务器地址和端口（如果端口不同） **
+            const ws_url = `${ws_protocol}//${window.location.host}/ws/ais/`; 
+
+            ws = new WebSocket(ws_url);
+
+            ws.onopen = function() {
+                console.log('WebSocket connection opened.');
+            };
+            
+            ws.onmessage = function(e) {
+                const message = JSON.parse(e.data);
+                
+                if (message.type === 'ais_update') {
+                    const rawData = message.data;
+                    
+                    // 1. 格式化数据，更新全局 shipData
+                    // 假设 rawData 是一个船舶对象数组，且包含 mmsi, name, lon, lat, course, speed 等字段
+                    shipData = rawData.map(ship => ({
+                        id: ship.mmsi, 
+                        name: ship.name,
+                        mmsi: ship.mmsi,
+                        lon: ship.lon,
+                        lat: ship.lat,
+                        heading: ship.course, 
+                        course: ship.course,
+                        speed: ship.speed,
+                        // 根据速度模拟状态
+                        status: ship.speed < 0.5 ? 'anchor' : 'sailing' 
+                    }));
+                    
+                    // 2. 刷新地图 Marker 和列表
+                    updateMarkersAndList();
+                    
+                    // 3. 更新概览卡片数据 (需要根据新的 shipData 计算)
+                    const totalShips = shipData.length;
+                    // 假设速度超过 25 节为异常/告警
+                    const alertCount = shipData.filter(s => s.status === 'sailing' && s.speed > 25).length; 
+                    
+                    document.getElementById('total-ships').textContent = totalShips;
+                    document.getElementById('alert-ships').textContent = alertCount;
+
+                    if( loopCount == 0 ) {
+
+                        // 1、异常停泊
+                        if (isAbnormalParkingDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/AbnormalParking/detectAbnormalParking/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-abnormalStaying';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('异常停泊检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 3、异常徘徊
+                        if (isAbnormalWanderingDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/AbnormalWandering/detectAbnormalWandering/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-abnormalWandering';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('异常徘徊检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 4、黑名单预警
+                        if (isBlacklistDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/BlackList/detectBlackList/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-blackList';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('黑名单检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 5、船舶碰撞
+                        if (isCollisionDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/Collision/detectCollision/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-collision';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('船舶碰撞检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 6、航道偏离
+                        if (isDeviationDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/Deviation/detectDeviation/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-deviation';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('航道偏离检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 7、双拖
+                        if (isDoubleDraggingDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/DoubleDragging/detectDoubleDragging/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-doubleDragging';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('双拖检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 8、海上围栏越界
+                        if (isCrossingBoundaryDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/CrossingBoundary/detectCrossingBoundary/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-CrossingBoundary';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('海上围栏越界检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 17、非法驻留
+                        if (isIllegalStayingDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/IllegalStaying/detectIllegalStaying/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-illegalStaying';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('非法驻留检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                        // 18、低速预警
+                        if (isLowSpeedDetectionActive) {           
+                            // 后端 API 需要 JSON 格式的当前 AIS 数据列表
+                            fetch('/LowSpeed/detectLowSpeed/', {
+                                method: "POST",
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                // 将最新接收到的 rawData 发送给后端
+                                body: JSON.stringify(rawData)
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                const featureId = 'detect-lowSpeedBoat';
+                                const detailTrigger = document.getElementById(featureId + '-count');
+                                const title = getFeatureTitle(featureId);
+
+                                if (data.success) {
+                                    const alertCount = data.count;
+                                    
+                                    // 存储结果
+                                    detectionResults[featureId] = data.results; 
+
+                                    // 更新前端计数显示
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                                    detailTrigger.style.display = 'inline-block';
+                                    detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+                                    
+                                } else {
+                                    console.error('低速预警检测服务调用失败:', data.message);
+                                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('API Error during detection:', error);
+                                document.getElementById('detect-blackList-count').textContent = 'API错误';
+                            });
+                        }
+                    }
+                    loopCount += 1;
+                    if( loopCount > 30 )
+                        loopCount = 0;
+                }
+            };
+            console.log("afterafter");
+            ws.onclose = function() {
+                console.log('WebSocket connection closed. Retrying in 5s...');
+                setTimeout(initWebSocket, 5000); // 尝试重连
+            };
+
+            ws.onerror = function(err) {
+                console.error('WebSocket error:', err);
+                ws.close();
+            };
+        }
+        
+        // ----------------- 功能选项面板 JS 逻辑 (保持不变) -----------------
+        
+        // 【新增】获取激活的融合模型列表
+        function getActiveFusionSensors() {
+            const activeSensors = [];
+            const fusionMap = {
+                'fusion-vis-ais': 'VIS',
+                'fusion-ais-radar': 'AIS/RADAR',
+                'fusion-uav-vis-ais': 'UAV',
+                'fusion-vis-inf': 'IR',
+                'fusion-sar-ais': 'SAR'
+            };
+            
+            for (const switchName in fusionMap) {
+                const checkbox = document.querySelector(`input[name="${switchName}"]`);
+                if (checkbox && checkbox.checked) {
+                    activeSensors.push(fusionMap[switchName]);
+                }
+            }
+            return activeSensors;
+        }
+
+        // 【新增】模拟判断是否有融合结果
+        function hasFusionResult(mmsi, sensorKey) {
+            const mmsiResultMap = {
+                '123456780': ['VIS', 'AIS/RADAR', 'UAV', 'IR', 'SAR'],
+                '123456781': ['VIS', 'AIS/RADAR'],
+            };
+            
+            if (mmsiResultMap[mmsi]) {
+                return mmsiResultMap[mmsi].includes(sensorKey);
+            }
+            return false;
+        }
+
+        // 【新增】处理传感器选项点击事件 (桩函数)
+        function handleSensorClick(sensorLabel, mmsi) {
+            alert(`查看 MMSI ${mmsi} 的 ${sensorLabel} 传感器数据`);
+        }
+        
+     	// 【新增】关闭船舶信息窗口的全局函数
+        function closeShipPopup() {
+            if (shipInfoWindow) {
+                shipInfoWindow.close();
+            }
+        }
+        
+        // 【新增】打开船舶信息窗口 (实现动态判断融合结果)
+        function openShipPopup(ship) {
+            const activeSensors = getActiveFusionSensors();
+            let sensorHtml = '';
+            
+            const sensorMap = {
+                'fusion-vis-ais': { key: 'VIS', label: '岸基视频' },
+                'fusion-ais-radar': { key: 'AIS/RADAR', label: '雷达信息' },
+                'fusion-uav-vis-ais': { key: 'UAV', label: '无人机视频' },
+                'fusion-vis-inf': { key: 'IR', label: '红外视频' },
+                'fusion-sar-ais': { key: 'SAR', label: '星基SAR图像' }
+            };
+
+            for (const switchName in sensorMap) {
+                const sensor = sensorMap[switchName];
+                
+                const isModelActive = activeSensors.includes(sensor.key);
+                const hasResult = hasFusionResult(ship.mmsi, sensor.key); 
+                
+                const isAvailable = isModelActive && hasResult;
+                
+                let className = 'inactive-option';
+                let onClickAction = 'void(0)'; 
+                let tooltip = '功能未开启';
+
+                if (isAvailable) {
+                    className = 'active-option';
+                    onClickAction = `handleSensorClick('${sensor.label}', '${ship.mmsi}')`;
+                    tooltip = `点击查看 ${sensor.label} 融合结果`;
+                } else if (isModelActive && !hasResult) {
+                    tooltip = `模型已开启，但该船无${sensor.label}融合结果`;
+                } else if (!isModelActive) {
+                    tooltip = `模型未开启`;
+                }
+                
+                sensorHtml += `<span class="${className}" onclick="${onClickAction}" title="${tooltip}">${sensor.label}</span>`;
+            }
+
+            const content = `
+			    <div class="ship-info-window">
+			        <span class="close-btn" onclick="closeShipPopup()">×</span>
+			        <h4>${ship.name}</h4>
+			        <p>MMSI: ${ship.mmsi}</p>
+			        <p>经纬度: ${ship.lon.toFixed(4)}, ${ship.lat.toFixed(4)}</p>
+			        <p>航速/航向: ${ship.speed.toFixed(1)}节 / ${ship.course}°</p>
+			        <div class="sensor-options">
+			            ${sensorHtml}
+			        </div>
+			    </div>
+			`;
+            
+            if (shipInfoWindow) {
+                shipInfoWindow.close();
+            } else {
+                shipInfoWindow = new AMap.InfoWindow({
+                    isCustom: true, 
+                    offset: new AMap.Pixel(0, -30) 
+                });
+            }
+
+            shipInfoWindow.setContent(content);
+            shipInfoWindow.open(map, [ship.lon, ship.lat]);
+
+            AMap.event.addListener(shipInfoWindow, 'open', () => {
+                const infoWindowElement = document.querySelector('.ship-info-window');
+                if (infoWindowElement) {
+                    infoWindowElement.addEventListener('click', (e) => {
+                        e.stopPropagation(); 
+                    });
+                }
+            }); 
+        }
+
+        function getFeatureTitle(featureId) {
+            switch (featureId) {
+                case 'fusion-vis-ais': return '视觉/AIS数据融合';
+                case 'fusion-ais-radar': return 'AIS/雷达数据融合';
+                case 'fusion-uav-vis-ais': return '无人端视觉/AIS数据融合';
+                case 'fusion-vis-inf': return '可见光/红外视觉数据融合';
+                case 'fusion-sar-ais': return  '星基SAR/AIS数据融合';
+                case 'detect-ais-off': return '关闭AIS船舶检测';
+                case 'detect-spoofing': return '身份伪造船舶检测';
+                case 'detect-smuggling': return '海上走私船舶检测';
+                case 'detect-highSpeedBoat': return '高速快艇检测';
+                case 'detect-overload': return '超载船舶检测';
+                case 'detect-illegalFishing': return '非法捕捞船舶检测';
+                case 'detect-illegalSandMining': return '盗采海砂船舶检测';
+                case 'detect-illegalFarming': return '非法养殖检测';
+                case 'detect-illegalPollutionDis': return '非法排污船舶检测';
+                case 'detect-illegalStaying': return '非法驻留船舶检测';
+                case 'detect-abnormalWandering': return '异常徘徊船舶检测';
+                case 'detect-abnormalStaying': return '异常停泊船舶检测';
+                case 'detect-illegalAnchored': return '非法抛锚船舶检测';
+                case 'detect-CrossingBoundary': return '海上围栏越界船舶检测';
+                case 'detect-doubleDragging': return '双拖船舶检测';
+                case 'detect-abnormalTransfer': return '异常接驳船舶检测';
+                case 'detect-deviation': return '偏离航道船舶检测';
+                case 'detect-collision': return '船舶碰撞检测';
+                case 'detect-blackList': return '黑名单船舶检测';
+                case 'detect-lowSpeedBoat': return '低速船舶检测';
+                case 'detect-illegalBerthing': return '非法搭靠船舶检测';
+                default: return '未知功能';
+            }
+        }
+
+        function getFeatureLabel(featureId) {
+            return featureId.includes('fusion') ? '融合目标' : '违法目标';
+        }
+
+        function handleToggleChange(checkbox, featureId) {
+            const detailTrigger = document.getElementById(featureId + '-count');
+            
+            // 1、异常停泊
+            if (featureId === 'detect-abnormalStaying') {
+                isAbnormalParkingDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            } 
+            // // 3、异常徘徊
+            else if (featureId === 'detect-abnormalWandering') {
+                isAbnormalWanderingDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 4、黑名单预警
+            else if (featureId === 'detect-blackList') {
+                isBlacklistDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 5、船舶碰撞预警
+            else if (featureId === 'detect-collision') {
+                isCollisionDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 6、航道偏离
+            else if (featureId === 'detect-deviation') {
+                isDeviationDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            //7、双拖
+            else if (featureId === 'detect-doubleDragging') {
+                isDoubleDraggingDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 8、海上围栏越界
+            else if (featureId === 'detect-CrossingBoundary') {
+                isCrossingBoundaryDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 17、非法驻留
+            else if (featureId === 'detect-illegalStaying') {
+                isIllegalStayingDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 18、低速预警
+            else if (featureId === 'detect-lowSpeedBoat') {
+                isLowSpeedDetectionActive = checkbox.checked;
+
+                if (checkbox.checked) {
+                    // 开关打开时，将计数器显示为加载中或等待数据状态
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                } else {
+                    // 开关关闭时，隐藏计数器
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
+                }
+            }
+            // 其他情况，25类全部实现后删除
+            else if (checkbox.checked) {
+                let simulatedCount;
+                if (featureId === 'fusion-vis-ais') simulatedCount = 15;
+                else if (featureId === 'detect-spoofing') simulatedCount = 3;
+                else simulatedCount = Math.floor(Math.random() * 10) + 1;
+                    
+                detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + simulatedCount + '个';
+                detailTrigger.style.display = 'inline-block';
+                detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), simulatedCount);
+            } else {
+                detailTrigger.style.display = 'none';
+                delete detectionResults[featureId]; 
+            }
+            
+            // if (checkbox.checked) {
+            //     if (featureId === 'detect-blackList') {
+            //         isBlacklistDetectionActive = true;
+            //     } else {
+            //         let simulatedCount;
+            //         if (featureId === 'fusion-vis-ais') simulatedCount = 15;
+            //         else if (featureId === 'detect-spoofing') simulatedCount = 3;
+            //         else simulatedCount = Math.floor(Math.random() * 10) + 1;
+                    
+            //         detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + simulatedCount + '个';
+            //         detailTrigger.style.display = 'inline-block';
+            //         detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), simulatedCount);
+            //     }
+            // } else {
+            //     detailTrigger.style.display = 'none';
+            //     delete detectionResults[featureId]; 
+            // }
+
+            if (shipInfoWindow) {
+                shipInfoWindow.close();
+            }
+        }
+        
+        function openDetailModal(featureId, title, count) {
+            const modal = document.getElementById('detail-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalSummary = document.getElementById('modal-summary');
+            const modalDetails = document.getElementById('modal-details');
+            
+            modalTitle.textContent = title + ' 详情列表';
+            modalSummary.textContent = `当前共计检测到 ${getFeatureLabel(featureId)}: ${count} 个`;
+            
+            let targets = detectionResults[featureId];
+            
+            if (!targets || targets.length === 0) {
+                targets = [];
+                const displayCount = Math.min(count, Math.max(25, count));
+                const firstShipMMSI = '123456780'; 
+                
+                for (let i = 1; i <= displayCount; i++) { 
+                    const targetType = featureId.includes('fusion') ? '融合船' : '可疑船';
+                    const status = featureId.includes('detect') && i % 3 === 0 ? '高风险' : (featureId.includes('detect') ? '中风险' : '实时更新');
+                    const mmsi = i === 1 ? firstShipMMSI : String(Math.floor(Math.random() * 90000000) + 10000000); 
+                    
+                    targets.push({
+                        mmsi: mmsi,
+                        name: `${targetType}-${i}`,
+                        status: status,
+                        risk: status,
+                    });
+                }
+            }
+
+            let detailHtml = '<ul class="modal-details-list">';
+            targets.forEach((target, index) => {
+                const riskColor = target.risk === '高风险' ? 'var(--color-alert-red)' : (target.risk === '中风险' ? 'var(--color-warning-yellow)' : 'var(--color-success-green)');
+                
+                const mmsiHtml = `<span class="clickable-mmsi" onclick="locateShipByMMSI('${target.mmsi}')">MMSI: ${target.mmsi}</span>`;
+
+                detailHtml += `<li>
+                                    <span style="color: var(--color-text-light); width: 150px;">${target.name}</span> 
+                                    <span style="flex-grow: 1;">${mmsiHtml}</span>
+                                    <span style="color: ${riskColor}; width: 80px; text-align: right;">${target.status}</span>
+                                </li>`;
+            });
+            detailHtml += '</ul>';
+            
+            modalDetails.innerHTML = detailHtml;
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeDetailModal(event) {
+            const modal = document.getElementById('detail-modal');
+            if (!event || event.target.id === 'detail-modal' || event.target.className === 'close-button') {
+                modal.style.display = 'none';
+            }
+        }
+        
+     	// ----------------- 新增：获取面板宽度函数 -----------------
+        function getPanelWidthInPixels() {
+            const panel = document.getElementById('list-panel-container');
+            if (panel && panel.classList.contains('active')) {
+                return panel.offsetWidth; 
+            }
+            return 0;
+        }
+     	
+     	// 统一的船舶居中定位函数 (替代 map.setCenter)
+        function centerShipWithOffsetCorrection(ship, zoomLevel, callback) {
+            if (!map || !ship) return;
+            
+            const targetLonLat = [ship.lon, ship.lat];
+            
+            map.setCenter(targetLonLat);
+            map.setZoom(zoomLevel); 
+            
+            const correctionDelay = 50; 
+            setTimeout(() => {
+                const panelWidth = getPanelWidthInPixels();
+                if (panelWidth > 0) {
+                    const xOffset = panelWidth / 2;
+                    map.panBy(-xOffset, 0); 
+                    console.log(`Map corrected by ${-xOffset}px.`);
+                }
+                
+                if (callback && typeof callback === 'function') {
+                    setTimeout(callback, 100); 
+                }
+            }, correctionDelay); 
+        }
+        
+     	// ----------------- 新增：定位船舶 JS 逻辑 -----------------
+        function locateShipByMMSI(mmsi) {
+            const targetShip = shipData.find(ship => ship.mmsi === mmsi);
+
+            if (targetShip) {
+                closeDetailModal(); 
+                togglePanel('list-panel-container'); 
+                
+                // 模拟列表高亮并显示播放控件
+                const shipListItems = document.querySelectorAll('#ship-list .ship-item');
+                shipListItems.forEach(item => {
+                    item.classList.remove('active');
+                    // 注意：这里我们应该改用 data-mmsi 属性来查找，但为了兼容原 HTML 结构，先用 innerHTML
+                    if (item.innerHTML.includes(mmsi)) {
+                         item.classList.add('active');
+                    }
+                });
+                document.getElementById('playback-controls').style.display = 'flex';
+                
+                // 定位并打开信息窗口
+                centerShipWithOffsetCorrection(targetShip, 12, () => {
+                	openShipPopup(targetShip);
+    			});
+
+                console.log(`定位到船舶: ${mmsi} (${targetShip.name})`);
+            } else {
+                // 如果是新出现的船只，但尚未进入 shipData 列表，可能会找不到
+                alert(`未找到 MMSI: ${mmsi} 的船舶数据。`);
+            }
+        }
+        
+        function setupInitialToggles() {
+            document.querySelectorAll('.switch-input').forEach(checkbox => {
+                const featureId = checkbox.name; 
+                handleToggleChange(checkbox, featureId); 
+                checkbox.onchange = function() {
+                    handleToggleChange(this, featureId);
+                };
+            });
+        }
+        // ---------------------------------------------------
+
+
+        function initMap() {
+            console.log("initMap done:"); // <-- 调试打印 1
+            if (typeof AMap === 'undefined') {
+                console.error('高德地图 JS API 未加载。请检查 Key 和 URL。');
+                return;
+            }
+
+            map = new AMap.Map('amap-instance', {
+                viewMode: '3D',
+                zoom: 9, 
+                center: [113.280637, 23.125178], 
+                mapStyle: 'amap://styles/normal' 
+            });
+
+            map.on('zoomend', switchMarkersOnZoom);
+            
+            // 【修改】初始化地图后，立即尝试建立 WebSocket 连接
+            initWebSocket(); 
+            
+            // 【重要】移除 loadInitialShips() 调用，数据由 WebSocket 的 onmessage 处理
+            // loadInitialShips(); 
+            
+            document.getElementById('btn-draw-fence').onclick = startDrawingFence;
+        }
+
+        // ----------------- 【重构函数】 loadInitialShips() 改名为 updateMarkersAndList() -----------------
+        // 此函数不再加载初始数据，而是根据全局 shipData 刷新地图和列表
+        function updateMarkersAndList() {
+            // 1. 清除旧的 Marker
+            shipMarkers.forEach(marker => marker.setMap(null));
+            shipMarkers = [];
+            
+            // 2. 清除船舶列表
+            const shipListElement = document.getElementById('ship-list');
+            shipListElement.innerHTML = '';
+            
+            // 3. 遍历全局 shipData 并重新创建 Marker 和列表项
+            shipMarkers = shipData.map(ship => {
+                // A. 创建列表项
+                const listItem = document.createElement('li');
+                listItem.className = 'ship-item';
+                // 确保列表项有 data-mmsi 属性，方便 locateShipByMMSI 查找
+                listItem.setAttribute('data-mmsi', ship.mmsi); 
+                
+                const statusColor = ship.status === 'sailing' ? 'var(--color-success-green)' : (ship.status === 'anchor' ? 'var(--color-warning-yellow)' : 'var(--color-alert-red)');
+                listItem.innerHTML = `<span class="ship-status-icon" style="background-color: ${statusColor};"></span>${ship.name} (MMSI: ${ship.mmsi})`;
+                shipListElement.appendChild(listItem);
+
+                // B. 创建 Marker 实例 (位置、航向、数据都来自 shipData)
+                const marker = new AMap.Marker({
+                    position: [ship.lon, ship.lat],
+                    extData: ship, 
+                    map: map,
+                    angle: ship.heading, 
+                });
+
+                // C. Marker 交互
+                marker.on('click', () => {
+                    document.getElementById('playback-controls').style.display = 'flex';
+                    openShipPopup(ship);
+                });
+                
+                // D. 列表与 Marker 联动
+                listItem.onclick = () => {
+                    document.querySelectorAll('.ship-item.active').forEach(item => item.classList.remove('active'));
+                    listItem.classList.add('active');
+                    
+                    document.getElementById('playback-controls').style.display = 'flex';
+                    centerShipWithOffsetCorrection(ship, 12, () => {
+                        openShipPopup(ship);
+                    });
+                };
+
+                return marker;
+            });
+
+            // 4. 刷新 Marker 图标
+            switchMarkersOnZoom();
+        }
+
+        function switchMarkersOnZoom() {
+            if (!map) return;
+            
+            const currentZoom = map.getZoom();
+            const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+            const markerSize = isTriangleMode ? 30 : 20;
+            const newIconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
+
+            shipMarkers.forEach(marker => {
+                const ship = marker.getExtData();
+                const icon = new AMap.Icon({
+                    size: new AMap.Size(markerSize, markerSize),
+                    image: newIconUrl,
+                    imageSize: new AMap.Size(markerSize, markerSize)
+                });
+
+                marker.setIcon(icon);
+                marker.setAngle(isTriangleMode ? ship.heading : 0); 
+            });
+        }
+
+        function togglePanel(panelId) {
+            const allPanels = document.querySelectorAll('.side-panel-container');
+            const allButtons = document.querySelectorAll('.toolbar-icon');
+            const targetPanel = document.getElementById(panelId);
+            const targetButton = document.getElementById(`btn-${panelId.split('-')[0]}`);
+            const isActive = targetPanel.classList.contains('active');
+
+            allPanels.forEach(panel => panel.classList.remove('active'));
+            allButtons.forEach(btn => btn.classList.remove('active'));
+
+            if (!isActive) {
+                targetPanel.classList.add('active');
+                targetButton.classList.add('active');
+            } 
+        }
+        
+        function startDrawingFence() {
+            if (!map) return;
+            const mouseTool = new AMap.MouseTool(map);
+            mouseTool.polygon({
+                strokeColor: '#007BFF',
+                fillColor: 'rgba(0, 123, 255, 0.3)',
+                strokeWeight: 2,
+                strokeStyle: 'dashed',
+            });
+            AMap.Event.addListener(mouseTool, 'draw', (event) => {
+                mouseTool.close(true); 
+                console.log('Fence Drawn.');
+            });
+            alert('请在地图上点击绘制多边形围栏...');
+        }
+
+
+        // 【修改】页面加载完成后初始化地图和功能选项的开关状态
+        window.onload = function() {
+            initMap();
+            setupInitialToggles();
+            // initWebSocket() 在 initMap() 中调用，用于建立实时连接
+        };
+    </script>
+</body>
+</html>

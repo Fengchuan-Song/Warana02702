@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>海域警情主导态势预警研判系统</title>
+    
+    <style>
+        /* ==================== CSS 样式 - 引入主题变量 ==================== */
+        :root {
+            /* 海洋蓝主题变量 */
+            --color-primary: #007BFF;
+            --color-background-dark: #0C101B;
+            --color-sidebar-dark: #1A2035; /* 用于登录卡片背景 */
+            --color-text-light: #A0AEC0;
+            --color-success-green: #48BB78;
+        }
+
+        /* 基础样式和全屏背景 */
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: var(--color-background-dark);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; /* 启用 Flexbox 用于居中 */
+            justify-content: center; /* 水平居中 */
+            align-items: center; /* 垂直居中 */
+        }
+        
+        /* 登录卡片容器 */
+        .login-card {
+            background-color: var(--color-sidebar-dark);
+            border: 1px solid var(--color-primary); /* 蓝色边框强调 */
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 4px 25px rgba(0, 123, 255, 0.4); /* 蓝色光晕阴影 */
+            width: 100%;
+            max-width: 400px; /* 控制登录框最大宽度 */
+            text-align: center;
+        }
+
+        /* 标题样式 */
+        .login-card h2 {
+            color: white; /* 标题使用亮色 */
+            font-size: 2rem;
+            margin-bottom: 30px;
+            border-bottom: 2px solid var(--color-primary);
+            padding-bottom: 10px;
+            display: inline-block; /* 限制边框宽度 */
+        }
+
+        /* 表单段落样式 */
+        form p {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        /* 标签样式 (Django form.as_p 默认生成的 <label>) */
+        form label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--color-text-light);
+            font-size: 1rem;
+        }
+
+        /* 输入框样式 */
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px 15px;
+            margin-top: 5px;
+            border: 1px solid rgba(0, 123, 255, 0.5); /* 蓝色边框 */
+            border-radius: 6px;
+            background-color: var(--color-background-dark); /* 比卡片更深的背景 */
+            color: white;
+            font-size: 1rem;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        input[type="text"]:focus, input[type="password"]:focus {
+            border-color: var(--color-primary);
+            box-shadow: 0 0 8px rgba(0, 123, 255, 0.6);
+            outline: none;
+        }
+
+        /* 登录按钮样式 */
+        button[type="submit"] {
+            width: 100%;
+            padding: 15px;
+            margin-top: 25px;
+            border: none;
+            border-radius: 6px;
+            background-color: var(--color-primary); /* 强调色 */
+            color: white;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+        }
+
+        button[type="submit"]:hover {
+            background-color: #0056b3; /* 深蓝色悬停效果 */
+        }
+        
+        button[type="submit"]:active {
+            transform: translateY(1px); /* 点击时的微小位移效果 */
+        }
+        
+        /* 错误信息样式 (如果 Django 表单渲染了错误信息) */
+        .errorlist {
+            color: var(--color-alert-red);
+            list-style-type: none;
+            padding: 0;
+            margin-top: 5px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>海域协同联防联控指挥中心 登录</h2>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit">登 录</button>
+        </form>
+    </div>
+</body>
+</html>
