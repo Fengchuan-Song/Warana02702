@@ -9,7 +9,7 @@ from django.utils import timezone
 from . import models
 
 # --- 1. 配置参数 ---
-SPEED_THRESHOLD = 6.0
+SPEED_THRESHOLD = 1.5
 DURATION_THRESHOLD = 300
 
 
@@ -61,20 +61,20 @@ def detect_low_speed(request):
                 start_point = models.LowSpeedPoint.objects.filter(mmsi=mmsi).order_by('timestamp').first()
 
             if start_point:
-                # 此时两边都是 aware datetime，可以正常相减了
                 duration = (timestamp - start_point.timestamp).total_seconds()
 
                 if duration > DURATION_THRESHOLD:
                     all_alerts.append({
                         'mmsi': mmsi,
-                        'name': ship_info.get('name', f"船只-{mmsi}"),
-                        'risk': '中风险',
-                        'status': f"低速行驶 (已持续 {int(duration)}s)",
-                        'details': {'speed': speed, 'duration': int(duration)}
+                        'location': [ship_info.get('lon'), ship_info.get('lat')],
+                        'name': ship_info.get('name'),
+                        'details': f"检测为低速船舶，当前速度为{speed:.2f}节,低于规定最小航速{SPEED_THRESHOLD:.2f}节，且已持续低速航行 {int(duration)}s。",
                     })
 
     return JsonResponse({
         'success': True,
+        'type': '低速预警',
+        'timestamp': ship_list[0].get('timestamp'),
         'count': len(all_alerts),
         'results': all_alerts,
         'message': '检测成功'
