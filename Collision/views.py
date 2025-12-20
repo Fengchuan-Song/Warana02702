@@ -4,7 +4,8 @@ import math
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-
+from django.core.cache import cache
+from django.utils.dateparse import parse_datetime
 
 def haversine(lon1, lat1, lon2, lat2):
     R = 6371000  # meters
@@ -18,24 +19,23 @@ def haversine(lon1, lat1, lon2, lat2):
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
 def detect_collision(request):
-    """
-    船舶碰撞风险检测
-    """
-    try:
-        ships = json.loads(request.body.decode('utf-8'))
-    except Exception:
-        return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
+    # 从cache中拿数据
+    ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
 
+    if not ship_list:
+            return JsonResponse({'success': True, 'count': 0, 'results': []})
+    
+    # 判定逻辑
     results = []
     distance_threshold = 50      # 米
     speed_threshold = 8           # 节
 
-    n = len(ships)
+    n = len(ship_list)
     for i in range(n):
         for j in range(i + 1, n):
-            s1, s2 = ships[i], ships[j]
+            s1, s2 = ship_list[i], ship_list[j]
 
             d = haversine(
                 s1['lon'], s1['lat'],
