@@ -139,7 +139,7 @@ def detect_deviation(request):
             })
 
     # 4. 清理过期数据 (清理过去30分钟的数据)
-    cleanup_time = timestamp_now - timedelta(minutes=30)
+    cleanup_time = timestamp_now - timedelta(minutes=5)
     models.TrajectoryPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
     return JsonResponse({
