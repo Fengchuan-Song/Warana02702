@@ -7,6 +7,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from django.core.cache import cache
+from datetime import timedelta
 from scipy.stats import pearsonr
 
 from . import models
@@ -59,63 +61,43 @@ def extract_pair_features(pair_df):
 # --- 3. 视图函数 ---
 @csrf_exempt
 def detect_double_dragging(request):
-    """接收实时 AIS 列表，执行双拖行为检测"""
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'message': '仅支持 POST 请求'}, status=405)
+    # 从cache中拿数据
+    ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
 
-    try:
-        # 解析前端发送的 JSON 数据
-        data_received = json.loads(request.body.decode('utf-8'))
-
-        # 兼容处理：前端 Demo_v9 发送的是数组
-        ship_list = data_received if isinstance(data_received, list) else [data_received]
-
-        if not ship_list:
+    if not ship_list:
             return JsonResponse({'success': True, 'count': 0, 'results': []})
+    
+    # 判断逻辑
+    results = []
 
-        # 遍历接收到的所有船舶点并存入数据库
-        for ship_info in ship_list:
-            mmsi = str(ship_info.get('mmsi'))
-            # 字段对齐：根据您的打印结果，前端字段为 lon, speed, course
-            lat = float(ship_info.get('lat', 0))
-            lng = float(ship_info.get('lon', 0))  # 前端 lon -> 后端 lng
-            sog = float(ship_info.get('speed', 0))  # 前端 speed -> 后端 sog
-            cog = float(ship_info.get('course', 0))  # 前端 course -> 后端 cog
+    for ship_info in ship_list:
+        mmsi = str(ship_info.get('mmsi'))
+        # 字段对齐：根据您的打印结果，前端字段为 lon, speed, course
+        lat = float(ship_info.get('lat', 0))
+        lng = float(ship_info.get('lon', 0))  # 前端 lon -> 后端 lng
+        sog = float(ship_info.get('speed', 0))  # 前端 speed -> 后端 sog
+        cog = float(ship_info.get('course', 0))  # 前端 course -> 后端 cog
 
-            # 时间戳解析
-            ts_str = ship_info.get('timestamp')
-            timestamp = parse_datetime(ts_str) if ts_str else timezone.now()
+        # 时间戳解析
+        ts_str = ship_info.get('timestamp')
+        timestamp = parse_datetime(ts_str) if ts_str else timezone.now()
 
-            # 存储到数据库
-            models.DoubleDraggingPoint.objects.create(
-                mmsi=mmsi, lat=lat, lng=lng, sog=sog, cog=cog, timestamp=timestamp
-            )
+        # 存储到数据库
+        models.DoubleDraggingPoint.objects.create(
+            mmsi=mmsi, lat=lat, lng=lng, sog=sog, cog=cog, timestamp=timestamp
+        )
 
-        # 执行检测逻辑（以列表中第一艘船为例进行演示，实际可循环所有船）
-        # 这里选取列表中变动最活跃的一艘船或指定船只
-        test_mmsi = str(ship_list[0].get('mmsi'))
+        ship_a_qs = models.DoubleDraggingPoint.objects.filter(mmsi=mmsi).order_by('-timestamp')[:12]
 
-        # 提取船 A 最近的 12 个点
-        ship_a_qs = models.DoubleDraggingPoint.objects.filter(mmsi=test_mmsi).order_by('-timestamp')[:12]
-
-        # 如果点数不够，返回“积累中”但 success 必须为 True，防止前端显示“失败”
         if ship_a_qs.count() < 12:
-            return JsonResponse({
-                'success': True,
-                'count': 0,
-                'results': [],
-                'status': 'accumulating',
-                'message': f'正在积累数据 ({ship_a_qs.count()}/12)'
-            })
+            continue
 
         # 将 QuerySet 转为 DataFrame 方便算法处理
         df_a = pd.DataFrame(list(ship_a_qs.values('timestamp', 'lat', 'lng', 'sog', 'cog')))
 
         # 获取其他候选船舶
-        other_ships = models.DoubleDraggingPoint.objects.exclude(mmsi=test_mmsi).values_list('mmsi',
-                                                                                             flat=True).distinct()
-
-        detections = []
+        other_ships = models.DoubleDraggingPoint.objects.exclude(mmsi=mmsi).values_list('mmsi', flat=True).distinct()
         for other_mmsi in other_ships:
             ship_b_qs = models.DoubleDraggingPoint.objects.filter(mmsi=other_mmsi).order_by('-timestamp')[:20]
             if ship_b_qs.count() < 12:
@@ -143,24 +125,23 @@ def detect_double_dragging(request):
                 if features['distance_std'] < 500: score += 1
 
                 if score >= 3:
-                    detections.append({
-                        'mmsi': test_mmsi,
-                        'name': f"疑似双拖船对 ({test_mmsi}-{other_mmsi})",
-                        'pair_mmsi': other_mmsi,
-                        'risk': '高风险',
-                        'status': '双拖作业中',
-                        'details': features
+                    results.append({
+                        'mmsi': mmsi,
+                        'location': [lng, lat],
+                        'name': ship_info.get('name'),
+                        'details': f"检测为双拖渔船，疑似双拖船对为{other_mmsi}。",
                     })
+    
+    # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
+    cleanup_time = timestamp_now - timedelta(minutes=10)
+    models.DoubleDraggingPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
-        # 返回最终检测结果
-        return JsonResponse({
-            'success': True,
-            'count': len(detections),
-            'results': detections
-        })
-
-    except Exception as e:
-        # 打印详细错误堆栈到终端
-        print("--- DoubleDragging Error Details ---")
-        traceback.print_exc()
-        return JsonResponse({'success': False, 'message': f"服务器内部错误: {str(e)}"}, status=400)
+    # 返回最终检测结果
+    return JsonResponse({
+        'success': True,
+        'type': '双拖渔船',
+        'timestamp': ship_list[0].get('timestamp'),
+        'count': len(results),
+        'results': results,
+        'message': '检测成功'
+    })

@@ -1435,11 +1435,11 @@
                 case 'detect-abnormalStaying':
                     return '/AbnormalParking/detectAbnormalParking/';
                 // 2、异常接驳
-                case 'detect-abnormalTransfer':
-                    return '/AbnormalTransfer/detectAbnormalTransfer/';
+                // case 'detect-abnormalTransfer':
+                    // return '/AbnormalTransfer/detectAbnormalTransfer/';
                 // 3、异常徘徊
-                // case 'detect-abnormalWandering':
-                    // return '/AbnormalWandering/detectAbnormalWandering/';
+                case 'detect-abnormalWandering':
+                    return '/AbnormalWandering/detectAbnormalWandering/';
                 // 4、黑名单预警
                 case 'detect-blackList':
                     return '/BlackList/detectBlackList/';
@@ -1450,8 +1450,8 @@
                 case 'detect-deviation':
                     return '/Deviation/detectDeviation/';
                 // 7、双拖
-                // case 'detect-doubleDragging':
-                //     return '/DoubleDragging/detectDoubleDragging/';
+                case 'detect-doubleDragging':
+                    return '/DoubleDragging/detectDoubleDragging/';
                 // 8、海上围栏越界
                 // case 'detect-CrossingBoundary':
                 //     return '/CrossingBoundary/detectCrossingBoundary/';
@@ -1745,7 +1745,7 @@
                                     detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
                                 }
                             });
-                    }, 10000);
+                    }, 100000);
                 } else {
                     // 关闭清除计时器
                     if (activeTimers[featureId]) {
