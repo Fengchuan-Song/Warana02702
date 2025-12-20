@@ -3,6 +3,8 @@ import traceback
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.core.cache import cache
+from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 from . import models
 from .utils import run_loitering_analysis
@@ -15,79 +17,69 @@ MIN_POINTS_THRESHOLD = 10
 
 @csrf_exempt
 def receive_realtime_point(request):
-    """
-        仅使用异常徘徊算法识别风险船舶
-        """
-    if request.method == 'POST':
-        try:
-            body = json.loads(request.body)
+    # 从cache中拿数据
+    ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
 
-            # 1. 统一输入格式 (处理单字典或列表)
-            if isinstance(body, dict):
-                shipData = [body]
-            elif isinstance(body, list):
-                shipData = body
-            else:
-                return JsonResponse({'success': False, 'message': '数据格式错误'}, status=400)
+    if not ship_list:
+            return JsonResponse({'success': True, 'count': 0, 'results': []})
 
-            results = []
+    # 判定逻辑
+    results = []
 
-            # 2. 遍历输入数据，存入缓冲区并进行算法检测
-            for each in shipData:
-                mmsi = each.get('mmsi')
-                name = each.get('name', '未知船只')
-                lon = each.get('lon')
-                lat = each.get('lat')
+    # 2. 遍历输入数据，存入缓冲区并进行算法检测
+    for ship_info in ship_list:
+        mmsi = ship_info.get('mmsi')
+        name = ship_info.get('name', '未知船只')
+        lon = ship_info.get('lon')
+        lat = ship_info.get('lat')
 
-                if not mmsi:
-                    continue
+        if not mmsi:
+            continue
 
-                # --- A. 实时点存入缓冲区 ---
-                models.TrajectoryBuffer.objects.create(
-                    mmsi=mmsi,
-                    name=name,
-                    longitude=lon,
-                    latitude=lat,
-                    course=each.get('course', 0),
-                    speed=each.get('speed', 0),
-                    timestamp=each.get('timestamp', timezone.now())
-                )
+        # --- A. 实时点存入缓冲区 ---
+        models.TrajectoryBuffer.objects.create(
+            mmsi=mmsi,
+            name=name,
+            longitude=lon,
+            latitude=lat,
+            course=ship_info.get('course', 0),
+            speed=ship_info.get('speed', 0),
+            timestamp=ship_info.get('timestamp', timezone.now())
+        )
 
-                # --- B. 提取滑动窗口数据触发算法 ---
-                # 获取该船最近 30 分钟的所有轨迹点
-                check_window = timezone.now() - timedelta(minutes=30)
-                recent_points = models.TrajectoryBuffer.objects.filter(
-                    mmsi=mmsi,
-                    timestamp__gte=check_window
-                ).order_by('timestamp')
+        # --- B. 提取滑动窗口数据触发算法 ---
+        # 获取该船最近 30 分钟的所有轨迹点
+        check_window = timezone.now() - timedelta(minutes=30)
+        recent_points = models.TrajectoryBuffer.objects.filter(
+            mmsi=mmsi,
+            timestamp__gte=check_window
+        ).order_by('timestamp')
 
-                # 只有当缓冲区点数达到算法要求的阈值时才分析（建议至少5-10个点）
-                if recent_points.count() >= 10:
-                    # 调用你提供的 LoiteringBehaviour 逻辑封装的函数
-                    analysis = run_loitering_analysis(recent_points)
+        # 只有当缓冲区点数达到算法要求的阈值时才分析（建议至少5-10个点）
+        if recent_points.count() >= 10:
+            # 调用你提供的 LoiteringBehaviour 逻辑封装的函数
+            analysis = run_loitering_analysis(recent_points)
 
-                    if analysis.get('is_abnormal'):
-                        # 算法识别出异常，按要求的格式加入结果集
-                        results.append({
-                            'mmsi': mmsi,
-                            'name': name,
-                            'risk': '徘徊高风险',
-                            'status': '正在徘徊',
-                            # 可选：加入具体的异常段信息
-                            'detail': f"检测到 {analysis.get('abnormal_count', 0)} 处异常段"
-                        })
-
-            # 3. 按照要求的格式返回
-            response_data = {
-                'success': True,
-                'count': len(results),
-                'results': results,  # 仅包含被算法判定为“正在徘徊”的船舶
-            }
-
-            return JsonResponse(response_data)
-
-        except Exception as e:
-            traceback.print_exc()
-            return JsonResponse({'success': False, 'message': str(e)}, status=500)
-
-    return JsonResponse({'success': False, 'message': '仅支持POST方法'}, status=405)
+            if analysis.get('is_abnormal'):
+                # 算法识别出异常，按要求的格式加入结果集
+                results.append({
+                    'mmsi': mmsi,
+                    'location': [ship_info.get('lon'), ship_info.get('lat')],
+                    'name': name,
+                    'details': f"检测为异常徘徊船舶，判定逻辑待补充。"
+                })
+    
+    # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
+    cleanup_time = timestamp_now - timedelta(minutes=ANALYSIS_WINDOW_MINUTES)
+    models.TrajectoryBuffer.objects.filter(timestamp__lt=cleanup_time).delete()  
+    
+    # 3. 按照要求的格式返回
+    return JsonResponse({
+        'success': True,
+        'type': '异常徘徊',
+        'timestamp': ship_list[0].get('timestamp'),
+        'count': len(results),
+        'results': results,
+        'message': '检测成功'
+    })
