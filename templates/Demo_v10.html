@@ -856,6 +856,9 @@
 
         let detectionTimer = null;
 
+        // 统一计时器存储空间
+        const activeTimers = {};
+
         
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
@@ -1425,6 +1428,74 @@
             return featureId.includes('fusion') ? '融合目标' : '违法目标';
         }
 
+        // 获取违法事件预警模型的URL
+        function getDetectApiUrlByFeature(featureId) {
+            switch (featureId) {
+                // 1、异常停泊
+                case 'detect-abnormalStaying':
+                    return '/AbnormalParking/detectAbnormalParking/';
+                // 2、异常接驳
+                case 'detect-abnormalTransfer':
+                    return '/AbnormalTransfer/detectAbnormalTransfer/';
+                // 3、异常徘徊
+                case 'detect-abnormalWandering':
+                    return '/AbnormalWandering/detectAbnormalWandering/';
+                // 4、黑名单预警
+                case 'detect-blackList':
+                    return '/BlackList/detectBlackList/';
+                // 5、船舶碰撞
+                case 'detect-collision':
+                    return '/Collision/detectCollision/';
+                // 6、航道偏离
+                case 'detect-deviation':
+                    return '/Deviation/detectDeviation/';
+                // 7、双拖
+                case 'detect-doubleDragging':
+                    return '/DoubleDragging/detectDoubleDragging/';
+                // 8、海上围栏越界
+                case 'detect-CrossingBoundary':
+                    return '/CrossingBoundary/detectCrossingBoundary/';
+                // 9、身份伪造
+                case 'detect-spoofing':
+                    return '/Forgery/detectForgery/';
+                // 10、高速快艇
+                case 'detect-highSpeedBoat':
+                    return '/HighSpeedBoat/detectHighSpeedBoat/';
+                // 11、非法抛锚
+                case 'detect-illegalAnchored':
+                    return '/IllegalAnchored/detectIllegalAnchored/';
+                // 12、非法搭靠
+                case 'detect-illegalBerthing':
+                    return '/IllegalBerthing/detectIllegalBerthing/';
+                // 13、非法养殖
+                case 'detect-illegalFarming':
+                    return '/IllegalFarming/detectIllegalFarming/';
+                // 14、非法捕捞
+                case 'detect-illegalFishing':
+                    return '/IllegalFishing/detectIllegalFishing/';
+                // 15、非法排污
+                case 'detect-illegalPollutionDis':
+                    return '/IllegalpollutionDis/detectIllegalpollutionDis/';
+                // 16、盗采海砂
+                case 'detect-illegalSandMining':
+                    return '/IllegalSandMining/detectIllegalSandMining/';
+                // 17、非法驻留
+                case 'detect-illegalStaying':
+                    return '/IllegalStaying/detectIllegalStaying/';
+                // 18、低速预警
+                case 'detect-lowSpeedBoat':
+                    return '/LowSpeed/detectLowSpeed/';
+                // 19、船舶超载
+                case 'detect-overload':
+                    return '/Overload/detectOverload/';
+                // 20、走私
+                case 'detect-smuggling':
+                    return '/Smuggling/detectSmuggling/';
+                default:
+                    return null;
+            }
+        }
+
         function handleToggleChange(checkbox, featureId) {
             const detailTrigger = document.getElementById(featureId + '-count');
             
@@ -1563,10 +1634,97 @@
             //         delete detectionResults[featureId]; 
             //     }
             // }
-            if (featureId === 'detect-lowSpeedBoat') {
+            // 1、异常停泊
+            // if (featureId === 'detect-lowSpeedBoat') {
+            //     if (checkbox.checked) {
+            //         detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+            //         detailTrigger.style.display = 'inline-block';
+            //         detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+            //         detectionTimer = setInterval(() => {
+            //             fetch('/AbnormalParking/detectAbnormalParking/')
+            //                 .then(response => response.json())
+            //                 .then(data => {
+            //                     const detailTrigger = document.getElementById(featureId + '-count');
+            //                     const title = getFeatureTitle(featureId);
+
+            //                     if (data.results.length > 0) {
+            //                         const alertCount = data.count;
+
+            //                         // 存储结果
+            //                         detectionResults[featureId] = data.results;
+
+            //                         // 更新前端计数显示
+            //                         detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+            //                         detailTrigger.style.display = 'inline-block';
+            //                         detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+            //                     } else {
+            //                         console.error('异常停泊检测服务调用失败:', data.message);
+            //                         detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+            //                     }
+            //                 });
+            //         }, 10000);
+            //     } else {
+            //         clearInterval(detectionTimer);
+            //         detailTrigger.style.display = 'none';
+            //         delete detectionResults[featureId]; 
+            //     }
+            // }
+            // 3、异常徘徊
+            // 4、黑名单预警
+            // 5、船舶碰撞预警
+            // 6、航道偏离
+            // 7、双拖
+            // 8、海上围栏越界
+            // 17、非法驻留
+            // 18、低速预警
+            // else if (featureId === 'detect-lowSpeedBoat') {
+            //     if (checkbox.checked) {
+            //         detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+            //         detailTrigger.style.display = 'inline-block';
+            //         detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+            //         detectionTimer = setInterval(() => {
+            //             fetch('/LowSpeed/detectLowSpeed/')
+            //                 .then(response => response.json())
+            //                 .then(data => {
+            //                     const detailTrigger = document.getElementById(featureId + '-count');
+            //                     const title = getFeatureTitle(featureId);
+
+            //                     if (data.results.length > 0) {
+            //                         const alertCount = data.count;
+
+            //                         // 存储结果
+            //                         detectionResults[featureId] = data.results;
+
+            //                         // 更新前端计数显示
+            //                         detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
+            //                         detailTrigger.style.display = 'inline-block';
+            //                         detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
+            //                     } else {
+            //                         console.error('低速预警检测服务调用失败:', data.message);
+            //                         detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
+            //                     }
+            //                 });
+            //         }, 10000);
+            //     } else {
+            //         clearInterval(detectionTimer);
+            //         detailTrigger.style.display = 'none';
+            //         delete detectionResults[featureId]; 
+            //     }
+            // }
+            // if (featureId === 'detect-lowSpeedBoat') {
                 if (checkbox.checked) {
+                    // 开启首先清除历史计时器
+                    if (activeTimers[featureId]){
+                        clearInterval(activeTimers[featureId]);
+                    }
+
+                    detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
+                    
+                    const detectAPIUrl = getDetectApiUrlByFeature(featureId);
                     detectionTimer = setInterval(() => {
-                        fetch('/LowSpeed/detectLowSpeed/')
+                        fetch(detectAPIUrl)
                             .then(response => response.json())
                             .then(data => {
                                 const detailTrigger = document.getElementById(featureId + '-count');
@@ -1583,29 +1741,35 @@
                                     detailTrigger.style.display = 'inline-block';
                                     detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
                                 } else {
-                                    console.error('航道偏离检测服务调用失败:', data.message);
+                                    console.error('预警检测服务调用失败:', data.message);
                                     detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
                                 }
                             });
                     }, 10000);
                 } else {
-                    clearInterval(detectionTimer);
+                    // 关闭清除计时器
+                    if (activeTimers[featureId]) {
+                        clearInterval(activeTimers[featureId]);
+                        delete activeTimers[featureId]; // 清除引用
+                    }
+                    detailTrigger.style.display = 'none';
+                    delete detectionResults[featureId]; 
                 }
-            }
-            // 其他情况，25类全部实现后删除
-            else if (checkbox.checked) {
-                let simulatedCount;
-                if (featureId === 'fusion-vis-ais') simulatedCount = 15;
-                else if (featureId === 'detect-spoofing') simulatedCount = 3;
-                else simulatedCount = Math.floor(Math.random() * 10) + 1;
+            // }
+            // // 其他情况，25类全部实现后删除
+            // else if (checkbox.checked) {
+            //     let simulatedCount;
+            //     if (featureId === 'fusion-vis-ais') simulatedCount = 15;
+            //     else if (featureId === 'detect-spoofing') simulatedCount = 3;
+            //     else simulatedCount = Math.floor(Math.random() * 10) + 1;
                     
-                detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + simulatedCount + '个';
-                detailTrigger.style.display = 'inline-block';
-                detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), simulatedCount);
-            } else {
-                detailTrigger.style.display = 'none';
-                delete detectionResults[featureId]; 
-            }
+            //     detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + simulatedCount + '个';
+            //     detailTrigger.style.display = 'inline-block';
+            //     detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), simulatedCount);
+            // } else {
+            //     detailTrigger.style.display = 'none';
+            //     delete detectionResults[featureId]; 
+            // }
             
             // if (checkbox.checked) {
             //     if (featureId === 'detect-blackList') {
