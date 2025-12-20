@@ -74,7 +74,7 @@ def detect_low_speed(request):
                     })
 
     # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
-    cleanup_time = timestamp_now - timedelta(minutes=DURATION_THRESHOLD / 60)
+    cleanup_time = timestamp_now - timedelta(minutes=1.5 * DURATION_THRESHOLD / 60)
     models.LowSpeedPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
     return JsonResponse({
