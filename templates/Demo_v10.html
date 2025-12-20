@@ -1730,7 +1730,7 @@
                                 const detailTrigger = document.getElementById(featureId + '-count');
                                 const title = getFeatureTitle(featureId);
 
-                                if (data.results.length > 0) {
+                                if (data.success) {
                                     const alertCount = data.count;
 
                                     // 存储结果
@@ -1825,15 +1825,13 @@
             }
 
             let detailHtml = '<ul class="modal-details-list">';
-            targets.forEach((target, index) => {
-                const riskColor = target.risk === '高风险' ? 'var(--color-alert-red)' : (target.risk === '中风险' ? 'var(--color-warning-yellow)' : 'var(--color-success-green)');
-                
+            targets.forEach((target, index) => {                
                 const mmsiHtml = `<span class="clickable-mmsi" onclick="locateShipByMMSI('${target.mmsi}')">MMSI: ${target.mmsi}</span>`;
 
                 detailHtml += `<li>
-                                    <span style="color: var(--color-text-light); width: 150px;">${target.name}</span> 
+                                    <span style="width: 80px;">${target.name}</span> 
                                     <span style="flex-grow: 1;">${mmsiHtml}</span>
-                                    <span style="color: ${riskColor}; width: 80px; text-align: right;">${target.status}</span>
+                                    <span style="width: 300px; text-align: left;">${target.details}</span>
                                 </li>`;
             });
             detailHtml += '</ul>';
