@@ -126,12 +126,10 @@ def run_parking_analysis(queryset):
             abnormal_events.append({
                 'start_time': str(start_t),
                 'end_time': str(end_t),
-                'duration': round(duration, 2),
-                'location': {'lat': center_lat, 'lon': center_lon}
+                'duration': round(duration, 2)
             })
 
     return {
         'is_abnormal': len(abnormal_events) > 0,
-        'count': len(abnormal_events),
         'events': abnormal_events
     }
