@@ -5,9 +5,14 @@ import numpy as np
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-
+from django.core.cache import cache
+from django.utils.dateparse import parse_datetime
+from datetime import timedelta
 from . import models
 from .apps import KNOWLEDGE_BASE, K_NEIGHBORS, DEVIATION_THRESHOLD_DTW  # 导入知识库和参数
+
+# 配置参数
+SEGMENT_LENGTH = 10
 
 # 导入算法核心依赖 (它们已经在 apps.py 中被导入，但为确保函数可用性，这里再次尝试导入)
 try:
@@ -89,83 +94,59 @@ def check_deviation_core(new_trajectory_points):
 
 # --- Django View 接口 ---
 @csrf_exempt
-@require_http_methods(["POST"])
 def detect_deviation(request):
-    """
-    接收实时 AIS 轨迹点，积累后执行航道偏离检测，并返回结果。
-    """
-    # 每积累 N 个点进行一次检测 (N 可根据实时性要求配置)
-    SEGMENT_LENGTH = 10
+    # 从cache中拿数据
+    ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
 
-    # 1. 接收并解析实时 AIS 数据 (预期输入: 单个点)
-    try:
-        data = json.loads(request.body.decode('utf-8'))
-        for each in data:
-            mmsi = str(each.get('mmsi'))
-            longitude = float(each.get('lon'))
-            latitude = float(each.get('lat'))
+    if not ship_list:
+            return JsonResponse({'success': True, 'count': 0, 'results': []})
+    
+    # 判定逻辑
+    results = []
 
-            try:
-                models.TrajectoryPoint.objects.create(
-                    mmsi=mmsi,
-                    longitude=longitude,
-                    latitude=latitude
-                )
-            except Exception as e:
-                print(f'{e}')
+    for ship_info in ship_list:
+        mmsi = str(ship_info.get('mmsi'))
+        longitude = float(ship_info.get('lon'))
+        latitude = float(ship_info.get('lat'))
 
-        if not all([mmsi, longitude, latitude]):
-            return JsonResponse(
-                {'success': False, 'message': 'Invalid input data: Missing mmsi, longitude, or latitude.'}, status=400)
+        try:
+            models.TrajectoryPoint.objects.create(
+                mmsi=mmsi,
+                longitude=longitude,
+                latitude=latitude
+            )
+        except Exception as e:
+            print(f'{e}')
 
-    except (json.JSONDecodeError, ValueError) as e:
-        return JsonResponse(
-            {'success': False, 'message': f'Invalid JSON format or data type in request body. Error: {e}'}, status=400)
-    except Exception:
-        print(data)
-        return JsonResponse({'success': False, 'message': 'Failed to receive or process data.'}, status=400)
+        latest_points = models.TrajectoryPoint.objects.filter(mmsi=mmsi).order_by('-timestamp')[:SEGMENT_LENGTH]
 
+        current_length = len(latest_points)
+        if current_length < SEGMENT_LENGTH:
+            continue
 
-    # 3. 提取最新的轨迹段进行检测
-    # 查询该MMSI最新的 SEGMENT_LENGTH 个点，按时间倒序
-    latest_points = models.TrajectoryPoint.objects.filter(mmsi=mmsi).order_by('-timestamp')[:SEGMENT_LENGTH]
+        trajectory_segment = [[p.longitude, p.latitude] for p in reversed(latest_points)]
 
-    current_length = len(latest_points)
+        # is_deviated = True
+        is_deviated, dtw_score, status_message = check_deviation_core(trajectory_segment)
 
-    # 如果点数不够，则继续积累
-    if current_length < SEGMENT_LENGTH:
-        return JsonResponse({
-            'success': True,
-            'mmsi': mmsi,
-            'status': "积累中",
-            'message': f"Trajectory accumulation in progress ({current_length}/{SEGMENT_LENGTH} points).",
-            'is_deviated': False,
-            'dtw_score': None
-        })
+        if (is_deviated):
+            results.append({
+                'mmsi': mmsi,
+                'location': [longitude, latitude],
+                'name': ship_info.get('name'),
+                'details': f"检测为航道偏离船舶，航线与习惯航路不符。"
+            })
 
-    # 将查询集转换为算法所需的 [ [lon, lat], ... ] 格式
-    # 注意：查询集是倒序的，需要反转为正序（从老到新）
-    trajectory_segment = [[p.longitude, p.latitude] for p in reversed(latest_points)]
+    # 4. 清理过期数据 (清理过去30分钟的数据)
+    cleanup_time = timestamp_now - timedelta(minutes=30)
+    models.TrajectoryPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
-    # 4. 执行偏航检测核心逻辑
-    is_deviated, dtw_score, status_message = check_deviation_core(trajectory_segment)
-
-    # 5. 返回结果
-    response_data = {
+    return JsonResponse({
         'success': True,
-        'mmsi': mmsi,
-        # 'count': len(results),
-        'is_deviated': is_deviated,
-        'status': status_message,
-        'dtw_score': round(dtw_score, 4) if dtw_score is not None and dtw_score >= 0 else None,
-        'threshold': DEVIATION_THRESHOLD_DTW,
-        'message': "Detection successful." if dtw_score >= 0 else status_message,
-        'segment_length': current_length
-    }
-
-    return JsonResponse(response_data)
-
-
-from django.shortcuts import render
-
-# Create your views here.
+        'type': '航道偏离',
+        'timestamp': ship_list[0].get('timestamp'),
+        'count': len(results),
+        'results': results,
+        'message': '检测成功'
+    })
