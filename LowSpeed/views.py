@@ -18,6 +18,7 @@ DURATION_THRESHOLD = 300
 def detect_low_speed(request):
     # 从cache中拿数据
     ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
 
     if not ship_list:
             return JsonResponse({'success': True, 'count': 0, 'results': []})
@@ -73,7 +74,7 @@ def detect_low_speed(request):
                     })
 
     # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
-    cleanup_time = timezone.now() - timedelta(minutes= DURATION_THRESHOLD / 60)
+    cleanup_time = timestamp_now - timedelta(minutes=DURATION_THRESHOLD / 60)
     models.LowSpeedPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
     return JsonResponse({
