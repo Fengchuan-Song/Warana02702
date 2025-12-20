@@ -6,6 +6,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils.timezone import make_aware, is_naive
 from django.core.cache import cache
 from django.utils import timezone
+from datetime import timedelta
 from . import models
 
 # --- 1. 配置参数 ---
@@ -70,6 +71,10 @@ def detect_low_speed(request):
                         'name': ship_info.get('name'),
                         'details': f"检测为低速船舶，当前速度为{speed:.2f}节,低于规定最小航速{SPEED_THRESHOLD:.2f}节，且已持续低速航行 {int(duration)}s。",
                     })
+
+    # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
+    cleanup_time = timezone.now() - timedelta(minutes= DURATION_THRESHOLD / 60)
+    models.LowSpeedPoint.objects.filter(timestamp__lt=cleanup_time).delete()
 
     return JsonResponse({
         'success': True,
