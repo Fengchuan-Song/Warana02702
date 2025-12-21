@@ -839,8 +839,8 @@
         const EXPIRATION_TIME = 60000;      // 目标消失阈值：60s
 
         // Marker Icon SVG URL (保持不变)
-        const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
-        const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
+        const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
+        const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
         // ✅ 新增：选中状态的绿色三角形 (颜色改为绿色)
         const ICON_TRIANGLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%2348BB78;stroke:black;stroke-width:5"/></svg>';
 
@@ -1359,7 +1359,8 @@
                 // const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
                 const currentZoom = map.getZoom();
                 const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-                const markerSize = isTriangleMode ? 30 : 20;
+                const markerSizeWidth = isTriangleMode ? 15 :10;
+                const markerSizeHeight = isTriangleMode ? 20 :10;
                 const iconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
                 
                 // 3. 根据历史记录是否存在，判断是新出现目标还是已有目标
@@ -1379,9 +1380,9 @@
                         map: map,
                         angle: isTriangleMode ? ship.heading : 0,
                         icon: new AMap.Icon({
-                            size: new AMap.Size(markerSize, markerSize),
+                            size: new AMap.Size(markerSizeWidth, markerSizeHeight),
                             image: iconUrl,
-                            imageSize: new AMap.Size(markerSize, markerSize)
+                            imageSize: new AMap.Size(markerSizeWidth, markerSizeHeight)
                         })
                     });
 
@@ -1472,16 +1473,17 @@
             
             const currentZoom = map.getZoom();
             const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-            const markerSize = isTriangleMode ? 30 : 20;
+            const markerSizeWidth = isTriangleMode ? 15 : 10;
+            const markerSizeHeight = isTriangleMode ? 20 : 10;
             const newIconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
 
             shipMarkersMap.forEach((marker, mmsi) => {
                 const ship = marker.getExtData();
 
                 const icon = new AMap.Icon({
-                    size: new AMap.Size(markerSize, markerSize),
+                    size: new AMap.Size(markerSizeWidth, markerSizeHeight),
                     image: newIconUrl,
-                    imageSize: new AMap.Size(markerSize, markerSize)
+                    imageSize: new AMap.Size(markerSizeWidth, markerSizeHeight)
                 });
 
                 marker.setIcon(icon);
