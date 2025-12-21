@@ -830,36 +830,9 @@
         // 【新增】WebSocket 实例
         let ws = null;
 
-        let isAbnormalParkingDetectionActive = false;
-        let isAbnormalTransferDetectionActive = false;
-        let isAbnormalWanderingDetectionActive = false;
-        let isBlacklistDetectionActive = false;
-        let isCollisionDetectionActive = false;
-        let isDeviationDetectionActive = false;
-        let isDoubleDraggingDetectionActive = false;
-        let isCrossingBoundaryDetectionActive = false;
-        let isForgeryDetectionActive = false;
-        let isHighSpeedBoatDetectionActive = false;
-        let isIllegalAnchoredDetectionActive = false;
-        let isIllegalBerthingDetectionActive = false;
-        let isIllegalFarmingDetectionActive = false;
-        let isIllegalFishingDetectionActive = false;
-        let isIllegalPolutionDisDetectionActive = false;
-        let isIllegalSandMiningDetectionActive = false;
-        let isIllegalStayingDetectionActive = false;
-        let isLowSpeedDetectionActive = false;
-        let isOverloadDetectionActive = false;
-        let isSmugglingDetectionActive = false;
-
-        /**/
-        let loopCount = 0;
-
-        let detectionTimer = null;
-
         // 统一计时器存储空间
         const activeTimers = {};
 
-        
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
         const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
@@ -1160,7 +1133,7 @@
                 detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
                 
                 const detectAPIUrl = getDetectApiUrlByFeature(featureId);
-                detectionTimer = setInterval(() => {
+                activeTimers[featureId] = setInterval(() => {
                     fetch(detectAPIUrl)
                         .then(response => response.json())
                         .then(data => {
