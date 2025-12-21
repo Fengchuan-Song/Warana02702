@@ -822,7 +822,7 @@
 
         let map = null; 
         let shipData = []; // shipData 现在将由 WebSocket 实时更新
-        let shipMarkers = []; 
+        // let shipMarkers = []; 
         const CRITICAL_ZOOM_LEVEL = 11;
         let shipInfoWindow = null; 
         let detectionResults = {};
@@ -833,9 +833,20 @@
         // 统一计时器存储空间
         const activeTimers = {};
 
+        // 船舶目标显示变量
+        let shipMarkersMap = new Map();
+        let shipLastSeenMap = new Map();
+        const EXPIRATION_TIME = 60000;      // 目标消失阈值：60s
+
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
         const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
+        // ✅ 新增：选中状态的绿色三角形 (颜色改为绿色)
+        const ICON_TRIANGLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%2348BB78;stroke:black;stroke-width:5"/></svg>';
+
+        // 记录当前选中的 MMSI
+        let selectedShipMmsi = null;
+
 
         // ----------------- 【新增核心函数】WebSocket 初始化 -----------------
         function initWebSocket() {
@@ -1330,41 +1341,77 @@
         // 此函数不再加载初始数据，而是根据全局 shipData 刷新地图和列表
         function updateMarkersAndList() {
             // 1. 清除旧的 Marker
-            shipMarkers.forEach(marker => marker.setMap(null));
-            shipMarkers = [];
+            // shipMarkers.forEach(marker => marker.setMap(null));
+            // shipMarkers = [];
             
             // 2. 清除船舶列表
             const shipListElement = document.getElementById('ship-list');
             shipListElement.innerHTML = '';
+            const now = Date.now();
             
-            // 3. 遍历全局 shipData 并重新创建 Marker 和列表项
-            shipMarkers = shipData.map(ship => {
-                // A. 创建列表项
+            shipData.forEach(ship => {
+                // 1. 更新货创建时间戳记录
+                shipLastSeenMap.set(ship.mmsi, now);
+                
+                // 2. 获取历史船舶目标，并根据缩放比例来展示船舶
+                let marker = shipMarkersMap.get(ship.mmsi);
+                // const currentZoom = map.getZoom();
+                // const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+                const currentZoom = map.getZoom();
+                const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+                const markerSize = isTriangleMode ? 30 : 20;
+                const iconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
+                
+                // 3. 根据历史记录是否存在，判断是新出现目标还是已有目标
+                if (marker) {
+                    // 3.1. 存在则移动位置
+                    marker.setPosition([ship.lon, ship.lat]);
+                    marker.setAngle(isTriangleMode ? ship.heading : 0);
+                    marker.setExtData(ship);
+
+                    // const isActive = (ship.mmsi === selectedShipMmsi);
+                    // refreshMarkerIcon(marker, isActive);
+                } else {
+                    // 3.2. 不存在则新建
+                    marker = new AMap.Marker({
+                        position: [ship.lon, ship.lat],
+                        extData: ship,
+                        map: map,
+                        angle: isTriangleMode ? ship.heading : 0,
+                        icon: new AMap.Icon({
+                            size: new AMap.Size(markerSize, markerSize),
+                            image: iconUrl,
+                            imageSize: new AMap.Size(markerSize, markerSize)
+                        })
+                    });
+
+                    // Marker 交互
+                    marker.on('click', () => {
+                        // selectedShipMmsi = ship.mmsi;
+                        // selectShip(ship.mmsi); // ✅ 调用选中逻辑
+                        document.getElementById('playback-controls').style.display = 'flex';
+                        openShipPopup(ship);
+                    });
+
+                    shipMarkersMap.set(ship.mmsi, marker);
+                }
+
+                // const isActive = ship.mmsi === selectedShipMmsi; // 判断这艘船是否是当前选中状态
+                // refreshMarkerIcon(marker, isActive);            // 调用辅助函数刷新颜色
+
+                // 4. 同步更新侧边栏列表（仅显示当前实时存在的目标）
                 const listItem = document.createElement('li');
                 listItem.className = 'ship-item';
-                // 确保列表项有 data-mmsi 属性，方便 locateShipByMMSI 查找
-                listItem.setAttribute('data-mmsi', ship.mmsi); 
-                
+
+                // --- 关键修复：添加以下三行来显示文字和状态图标 ---
                 const statusColor = ship.status === 'sailing' ? 'var(--color-success-green)' : (ship.status === 'anchor' ? 'var(--color-warning-yellow)' : 'var(--color-alert-red)');
                 listItem.innerHTML = `<span class="ship-status-icon" style="background-color: ${statusColor};"></span>${ship.name} (MMSI: ${ship.mmsi})`;
-                shipListElement.appendChild(listItem);
-
-                // B. 创建 Marker 实例 (位置、航向、数据都来自 shipData)
-                const marker = new AMap.Marker({
-                    position: [ship.lon, ship.lat],
-                    extData: ship, 
-                    map: map,
-                    angle: ship.heading, 
-                });
-
-                // C. Marker 交互
-                marker.on('click', () => {
-                    document.getElementById('playback-controls').style.display = 'flex';
-                    openShipPopup(ship);
-                });
+                // ----------------------------------------------
                 
-                // D. 列表与 Marker 联动
                 listItem.onclick = () => {
+                    // selectedShipMmsi = ship.mmsi; // 记录 ID
+                    // selectShip(ship.mmsi); // ✅ 调用选中逻辑
+
                     document.querySelectorAll('.ship-item.active').forEach(item => item.classList.remove('active'));
                     listItem.classList.add('active');
                     
@@ -1373,9 +1420,48 @@
                         openShipPopup(ship);
                     });
                 };
-
-                return marker;
+                shipListElement.appendChild(listItem);
             });
+            
+            // // 3. 遍历全局 shipData 并重新创建 Marker 和列表项
+            // shipMarkers = shipData.map(ship => {
+            //     // A. 创建列表项
+            //     const listItem = document.createElement('li');
+            //     listItem.className = 'ship-item';
+            //     // 确保列表项有 data-mmsi 属性，方便 locateShipByMMSI 查找
+            //     listItem.setAttribute('data-mmsi', ship.mmsi); 
+                
+            //     const statusColor = ship.status === 'sailing' ? 'var(--color-success-green)' : (ship.status === 'anchor' ? 'var(--color-warning-yellow)' : 'var(--color-alert-red)');
+            //     listItem.innerHTML = `<span class="ship-status-icon" style="background-color: ${statusColor};"></span>${ship.name} (MMSI: ${ship.mmsi})`;
+            //     shipListElement.appendChild(listItem);
+
+            //     // B. 创建 Marker 实例 (位置、航向、数据都来自 shipData)
+            //     const marker = new AMap.Marker({
+            //         position: [ship.lon, ship.lat],
+            //         extData: ship, 
+            //         map: map,
+            //         angle: ship.heading, 
+            //     });
+
+            //     // C. Marker 交互
+            //     marker.on('click', () => {
+            //         document.getElementById('playback-controls').style.display = 'flex';
+            //         openShipPopup(ship);
+            //     });
+                
+            //     // D. 列表与 Marker 联动
+            //     listItem.onclick = () => {
+            //         document.querySelectorAll('.ship-item.active').forEach(item => item.classList.remove('active'));
+            //         listItem.classList.add('active');
+                    
+            //         document.getElementById('playback-controls').style.display = 'flex';
+            //         centerShipWithOffsetCorrection(ship, 12, () => {
+            //             openShipPopup(ship);
+            //         });
+            //     };
+
+            //     return marker;
+            // });
 
             // 4. 刷新 Marker 图标
             switchMarkersOnZoom();
@@ -1389,8 +1475,9 @@
             const markerSize = isTriangleMode ? 30 : 20;
             const newIconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
 
-            shipMarkers.forEach(marker => {
+            shipMarkersMap.forEach((marker, mmsi) => {
                 const ship = marker.getExtData();
+
                 const icon = new AMap.Icon({
                     size: new AMap.Size(markerSize, markerSize),
                     image: newIconUrl,
@@ -1400,6 +1487,24 @@
                 marker.setIcon(icon);
                 marker.setAngle(isTriangleMode ? ship.heading : 0); 
             });
+        }
+        // 过期目标删除
+        function startCleanupTimer() {
+            setInterval(() => {
+                const now = Date.now();
+                for (let [mmsi, lastSeen] of shipLastSeenMap) {
+                    if (now - lastSeen > EXPIRATION_TIME) {
+                        // 真正从地图和内存中移除
+                        const marker = shipMarkersMap.get(mmsi);
+                        if (marker) {
+                            marker.setMap(null);
+                            shipMarkersMap.delete(mmsi);
+                        }
+                        shipLastSeenMap.delete(mmsi);
+                        console.log(`目标 ${mmsi} 超过 ${EXPIRATION_TIME/1000}s 未更新，已移除。`);
+                    }
+                }
+            }, 5000); // 每5秒检查一次过期目标
         }
 
         function togglePanel(panelId) {
@@ -1434,11 +1539,52 @@
             alert('请在地图上点击绘制多边形围栏...');
         }
 
+        // 更改选中船舶的颜色
+        function selectShip(mmsi) {
+            // 1. 如果之前有选中的船，将其图标恢复原样
+            if (selectedShipMmsi && shipMarkersMap.has(selectedShipMmsi)) {
+                const prevMarker = shipMarkersMap.get(selectedShipMmsi);
+                refreshMarkerIcon(prevMarker, false);
+            }
+
+            // 2. 更新选中的 ID
+            selectedShipMmsi = mmsi;
+
+            // 3. 将当前选中的船图标变绿
+            if (shipMarkersMap.has(mmsi)) {
+                const currentMarker = shipMarkersMap.get(mmsi);
+                refreshMarkerIcon(currentMarker, true);
+            }
+        }
+
+        // 辅助函数：根据选中状态刷新图标
+        function refreshMarkerIcon(marker, isActive) {
+            const currentZoom = map.getZoom();
+            const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+            const ship = marker.getExtData();
+            
+            let iconUrl;
+            if (isTriangleMode) {
+                // 三角形模式下：选中使用绿色三角形，未选中使用黄色三角形
+                iconUrl = isActive ? ICON_TRIANGLE_ACTIVE_URL : ICON_TRIANGLE_URL;
+            } else {
+                // 圆点模式保持不变（已经是绿色）
+                iconUrl = ICON_CIRCLE_URL;
+            }
+
+            marker.setIcon(new AMap.Icon({
+                size: new AMap.Size(isTriangleMode ? 30 : 20, isTriangleMode ? 30 : 20),
+                image: iconUrl,
+                imageSize: new AMap.Size(isTriangleMode ? 30 : 20, isTriangleMode ? 30 : 20)
+            }));
+        }
+
 
         // 【修改】页面加载完成后初始化地图和功能选项的开关状态
         window.onload = function() {
             initMap();
             setupInitialToggles();
+            startCleanupTimer(); // 启动清理机制
             // initWebSocket() 在 initMap() 中调用，用于建立实时连接
         };
     </script>
