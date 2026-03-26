@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>融合预警</title>
+    <title>海域违法事件融合预警系统</title>
     
     <script type="text/javascript" 
             src="https://webapi.amap.com/maps?v=2.0&key=74a1c6075952477f257002e0664092d6&plugin=AMap.MouseTool"></script>
@@ -1093,8 +1093,8 @@
                 // case 'detect-spoofing':
                 //     return '/Forgery/detectForgery/';
                 // 10、高速快艇
-                // case 'detect-highSpeedBoat':
-                //     return '/HighSpeedBoat/detectHighSpeedBoat/';
+                case 'detect-highSpeedBoat':
+                    return '/HighSpeedBoat/detectHighSpeedBoat/';
                 // 11、非法抛锚
                 // case 'detect-illegalAnchored':
                 //     return '/IllegalAnchored/detectIllegalAnchored/';
@@ -1359,8 +1359,8 @@
                 // const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
                 const currentZoom = map.getZoom();
                 const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-                const markerSizeWidth = isTriangleMode ? 15 :10;
-                const markerSizeHeight = isTriangleMode ? 20 :10;
+                const markerSizeWidth = isTriangleMode ? 30 :15;
+                const markerSizeHeight = isTriangleMode ? 30 :15;
                 const iconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
                 
                 // 3. 根据历史记录是否存在，判断是新出现目标还是已有目标
@@ -1473,8 +1473,8 @@
             
             const currentZoom = map.getZoom();
             const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-            const markerSizeWidth = isTriangleMode ? 15 : 10;
-            const markerSizeHeight = isTriangleMode ? 20 : 10;
+            const markerSizeWidth = isTriangleMode ? 30 : 15;
+            const markerSizeHeight = isTriangleMode ? 30 : 15;
             const newIconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
 
             shipMarkersMap.forEach((marker, mmsi) => {

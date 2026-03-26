@@ -1,3 +1,87 @@
-from django.shortcuts import render
+import json
+import traceback
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import make_aware, is_naive
+from django.core.cache import cache
+from django.utils import timezone
+from datetime import timedelta
+from . import models
 
-# Create your views here.
+# --- 1. 配置参数 ---
+SPEED_THRESHOLD = 30
+DURATION_THRESHOLD = 300
+
+
+@csrf_exempt
+def detect_high_speed(request):
+    # 从cache中拿数据
+    ship_list = cache.get('latest_ais_data_raw', [])
+    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
+
+    if not ship_list:
+            return JsonResponse({'success': True, 'count': 0, 'results': []})
+    
+    # 判断逻辑
+    all_alerts = []
+
+    for ship_info in ship_list:
+        mmsi = str(ship_info.get('mmsi'))
+        speed = float(ship_info.get('speed', 0))
+
+        # --- 修正后的时间处理逻辑 ---
+        ts_str = ship_info.get('timestamp')
+        if ts_str:
+            timestamp = parse_datetime(ts_str)
+            if timestamp and is_naive(timestamp):
+                timestamp = make_aware(timestamp)
+        else:
+            timestamp = timezone.now()
+
+        # 存储到数据库
+        models.HighSpeedPoint.objects.create(
+            mmsi=mmsi,
+            speed=speed,
+            timestamp=timestamp
+        )
+
+        # 高速判定逻辑
+        if speed > SPEED_THRESHOLD:
+            last_normal_point = models.HighSpeedPoint.objects.filter(
+                mmsi=mmsi,
+                speed__gte=SPEED_THRESHOLD,
+                timestamp__lt=timestamp
+            ).order_by('-timestamp').first()
+
+            if last_normal_point:
+                start_point = models.HighSpeedPoint.objects.filter(
+                    mmsi=mmsi,
+                    timestamp__gt=last_normal_point.timestamp
+                ).order_by('timestamp').first()
+            else:
+                start_point = models.HighSpeedPoint.objects.filter(mmsi=mmsi).order_by('timestamp').first()
+
+            if start_point:
+                duration = (timestamp - start_point.timestamp).total_seconds()
+
+                if duration > DURATION_THRESHOLD:
+                    all_alerts.append({
+                        'mmsi': mmsi,
+                        'location': [ship_info.get('lon'), ship_info.get('lat')],
+                        'name': ship_info.get('name'),
+                        'details': f"检测为高速快艇，当前速度为{speed:.2f}节，高于规定最大航速{SPEED_THRESHOLD:.2f}节，且已持续高速航行 {int(duration)}s。",
+                    })
+
+    # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
+    cleanup_time = timestamp_now - timedelta(minutes=1.5 * DURATION_THRESHOLD / 60)
+    models.HighSpeedPoint.objects.filter(timestamp__lt=cleanup_time).delete()
+
+    return JsonResponse({
+        'success': True,
+        'type': '高速快艇预警',
+        'timestamp': ship_list[0].get('timestamp'),
+        'count': len(all_alerts),
+        'results': all_alerts,
+        'message': '检测成功'
+    })
