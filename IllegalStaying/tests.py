@@ -1,3 +1,251 @@
-from django.test import TestCase
+import json
+from datetime import datetime, timedelta, timezone
 
-# Create your tests here.
+from django.core.cache import cache
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
+from django.urls import resolve
+
+from AISData.detection import DETECTORS
+from AISData.views import cached_detection_result
+
+from .models import StayingBuffer
+from .utils import get_forbidden_area
+from .views import (
+    ILLEGAL_STAYING_EVENT_CACHE_KEY,
+    detectIllegalStaying,
+)
+
+
+TEST_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "illegal-staying-tests",
+    }
+}
+
+TEST_CONFIG = {
+    "analysis_window_minutes": 10,
+    "retention_window_minutes": 20,
+    "max_speed_knots": 0.5,
+    "distance_threshold_metres": 50,
+    "min_duration_minutes": 2,
+    "min_points": 3,
+    "maximum_gap_seconds": 40,
+    "max_position_age_seconds": 60,
+    "future_tolerance_seconds": 60,
+    "event_retention_minutes": 10,
+    "forbidden_areas": [
+        {
+            "name": "测试禁停区",
+            "bounds": [9, 9, 11, 11],
+            "reason": "测试水域禁止驻留",
+        }
+    ],
+}
+
+
+class IllegalStayingRegistrationTests(SimpleTestCase):
+    def test_detector_registration_and_cache_only_url(self):
+        self.assertEqual(
+            DETECTORS["detect-illegalStaying"],
+            "IllegalStaying.views.detectIllegalStaying",
+        )
+        match = resolve("/IllegalStaying/detectIllegalStaying/")
+        self.assertIs(match.func, cached_detection_result)
+        self.assertEqual(
+            match.kwargs["feature_id"],
+            "detect-illegalStaying",
+        )
+
+    def test_polygon_forbidden_area_is_supported(self):
+        area = get_forbidden_area(
+            10,
+            10,
+            [
+                {
+                    "name": "多边形禁停区",
+                    "vertices": [[9, 9], [11, 9], [10, 11]],
+                }
+            ],
+        )
+
+        self.assertEqual(area["name"], "多边形禁停区")
+
+
+@override_settings(
+    CACHES=TEST_CACHES,
+    ILLEGAL_STAYING=TEST_CONFIG,
+)
+class IllegalStayingDetectorTests(TestCase):
+    base_time = datetime(2020, 12, 28, tzinfo=timezone.utc)
+
+    def setUp(self):
+        cache.delete(ILLEGAL_STAYING_EVENT_CACHE_KEY)
+        self.factory = RequestFactory()
+
+    def ship(
+        self,
+        seconds,
+        speed=0.1,
+        mmsi="123456789",
+        lon=10,
+        lat=10,
+        **extra,
+    ):
+        ship = {
+            "timestamp": (
+                self.base_time + timedelta(seconds=seconds)
+            ).isoformat(),
+            "mmsi": mmsi,
+            "name": None,
+            "lon": lon,
+            "lat": lat,
+            "speed": speed,
+        }
+        ship.update(extra)
+        return ship
+
+    def call_view(self, ship_list, method="get"):
+        request = getattr(self.factory, method)("/internal/detection/")
+        request.ais_ship_list = ship_list
+        response = detectIllegalStaying(request)
+        payload = None
+        if response.headers.get("Content-Type", "").startswith(
+            "application/json"
+        ):
+            payload = json.loads(response.content)
+        return response, payload
+
+    def feed(
+        self,
+        seconds_list=(0, 30, 60, 90, 120),
+        **overrides,
+    ):
+        payload = None
+        latest_ship = None
+        for seconds in seconds_list:
+            latest_ship = self.ship(seconds, **overrides)
+            _, payload = self.call_view([latest_ship])
+        return payload, latest_ship
+
+    def test_empty_snapshot_and_post_are_safe(self):
+        response, payload = self.call_view([])
+        post_response, _ = self.call_view([], method="post")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(post_response.status_code, 405)
+
+    def test_invalid_records_are_skipped_instead_of_stored_as_zero_speed(self):
+        _, payload = self.call_view(
+            [
+                self.ship(0, speed=None, mmsi="1"),
+                self.ship(0, speed=102.3, mmsi="2"),
+                self.ship(0, lon=999, mmsi="3"),
+                {"mmsi": "4", "speed": 0.1},
+            ]
+        )
+
+        self.assertEqual(payload["skipped_count"], 4)
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
+    def test_historical_ais_time_drives_duration_and_cleanup(self):
+        payload, _ = self.feed()
+
+        self.assertEqual(payload["count"], 1)
+        result = payload["results"][0]
+        self.assertEqual(result["duration_minutes"], 2)
+        self.assertEqual(result["point_count"], 5)
+        self.assertEqual(result["name"], "未知目标")
+        self.assertEqual(result["zone"], "测试禁停区")
+        self.assertTrue(result["is_new"])
+        self.assertEqual(StayingBuffer.objects.count(), 5)
+
+    def test_large_ais_gap_breaks_the_episode(self):
+        payload, _ = self.feed((0, 30, 180, 210, 240))
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_movement_ends_episode_instead_of_being_filtered_out(self):
+        self.feed((0, 30, 60))
+        _, moving = self.call_view([self.ship(90, speed=3)])
+        payload, _ = self.feed((120, 150, 180, 210))
+
+        self.assertEqual(moving["count"], 0)
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(StayingBuffer.objects.count(), 4)
+
+    def test_leaving_zone_or_normal_port_operation_resets_history(self):
+        self.feed((0, 30, 60))
+        self.call_view([self.ship(90, lon=12)])
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
+        self.feed((120, 150, 180))
+        self.call_view(
+            [self.ship(210, matched_port_name="测试港")]
+        )
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
+        self.feed((240, 270, 300))
+        self.call_view([self.ship(330, at_dock=True)])
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
+    def test_drift_beyond_radius_starts_a_new_episode(self):
+        self.feed((0, 30, 60))
+        payload, _ = self.feed(
+            (90, 120, 150, 180),
+            lon=10.001,
+        )
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_repeated_frames_use_upsert_and_keep_one_event(self):
+        first, latest_ship = self.feed()
+        _, repeated = self.call_view([latest_ship])
+        _, continuing = self.call_view([self.ship(150)])
+
+        self.assertFalse(repeated["results"][0]["is_new"])
+        self.assertFalse(continuing["results"][0]["is_new"])
+        self.assertEqual(
+            first["results"][0]["event_id"],
+            continuing["results"][0]["event_id"],
+        )
+        self.assertEqual(StayingBuffer.objects.count(), 6)
+
+    def test_stale_ship_is_not_joined_to_old_history(self):
+        self.feed((0, 30, 60))
+        _, payload = self.call_view(
+            [
+                self.ship(90),
+                self.ship(300, mmsi="987654321", lon=12),
+            ]
+        )
+
+        self.assertEqual(payload["stale_count"], 1)
+        self.assertFalse(
+            StayingBuffer.objects.filter(mmsi="123456789").exists()
+        )
+
+    def test_future_replay_points_are_removed(self):
+        StayingBuffer.objects.create(
+            mmsi="123456789",
+            name="测试船",
+            longitude=10,
+            latitude=10,
+            speed=0.1,
+            zone_name="测试禁停区",
+            timestamp=self.base_time + timedelta(days=1),
+        )
+
+        self.call_view([self.ship(0)])
+
+        self.assertFalse(
+            StayingBuffer.objects.filter(
+                timestamp=self.base_time + timedelta(days=1)
+            ).exists()
+        )

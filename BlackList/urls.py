@@ -1,7 +1,22 @@
-from django.contrib import admin
 from django.urls import path
-from .views import detect_black_list
+from AISData.views import cached_detection_result
+from . import views
 
 urlpatterns = [
-    path('detectBlackList/', detect_black_list, name='detect_black_list'),
+    path(
+        'ships/',
+        views.blacklist_collection,
+        name='blacklist_collection',
+    ),
+    path(
+        'ships/<int:entry_id>/',
+        views.blacklist_detail,
+        name='blacklist_detail',
+    ),
+    path(
+        'detectBlackList/',
+        cached_detection_result,
+        {'feature_id': 'detect-blackList'},
+        name='detect_black_list',
+    ),
 ]

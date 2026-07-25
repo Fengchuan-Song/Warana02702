@@ -1,6 +1,11 @@
 from django.urls import path
-from .views import detect_low_speed
+from AISData.views import cached_detection_result
 
 urlpatterns = [
-    path('detectLowSpeed/', detect_low_speed, name='detect_low_speed'),
+    path(
+        'detectLowSpeed/',
+        cached_detection_result,
+        {'feature_id': 'detect-lowSpeedBoat'},
+        name='detect_low_speed',
+    ),
 ]

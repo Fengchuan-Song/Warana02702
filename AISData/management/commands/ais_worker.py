@@ -1,12 +1,18 @@
 import time
 import csv
+import math
 import os
 from django.core.management.base import BaseCommand
+from django.conf import settings
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from AISData.consumers import AisConsumer
+from AISData.detection_queue import enqueue_all_detections
+from AISData.normalization import normalise_ais_name
 from WanAna02702.settings import BASE_DIR
 from django.core.cache import cache
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 AIS_FOLDER = os.path.join(BASE_DIR, 'Data/AIS/timeDivision_v2_30s')
 
@@ -19,16 +25,92 @@ class Command(BaseCommand):
         # 关键假设：CSV 文件中包含以下字段（或类似字段），请根据您的实际 CSV 头部调整键名。
         # 前端期望的键名: mmsi, name, lon, lat, course, speed
         try:
+            def optional_float(*field_names):
+                for field_name in field_names:
+                    raw_value = row.get(field_name)
+                    if raw_value in (None, ""):
+                        continue
+                    try:
+                        value = float(raw_value)
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(value):
+                        return value
+                return None
+
+            raw_timestamp = row.get('timestamp')
+            timestamp = (
+                parse_datetime(raw_timestamp)
+                if isinstance(raw_timestamp, str)
+                else raw_timestamp
+            )
+            if timestamp is None:
+                raise ValueError(
+                    f"Invalid AIS timestamp: {raw_timestamp!r}"
+                )
+            if timezone.is_naive(timestamp):
+                timestamp = timezone.make_aware(
+                    timestamp,
+                    timezone.get_current_timezone(),
+                )
+
+            raw_status = row.get('status')
+            try:
+                nav_status = (
+                    int(float(raw_status))
+                    if raw_status not in (None, '')
+                    else None
+                )
+            except (ValueError, TypeError):
+                nav_status = None
+
+            raw_at_dock = row.get('at_dock', False)
+            if isinstance(raw_at_dock, bool):
+                at_dock = raw_at_dock
+            else:
+                at_dock = str(raw_at_dock).strip().lower() in {
+                    '1', 'true', 'yes', 'y', '是'
+                }
+
+            raw_port_name = (
+                row.get('matchedPortName')
+                or row.get('matched_port_name')
+                or ''
+            )
+            matched_port_name = str(raw_port_name).strip()
+            if matched_port_name.lower() in {'nan', 'none', 'null'}:
+                matched_port_name = ''
+
             # 这里使用了 .get() 和 or 来尝试兼容常见的 CSV 头部字段名，并确保数值类型正确
             return {
-                'timestamp': row.get('timestamp'),
-                'mmsi': row.get('MMSI'),
-                'name': row.get('Name'),
+                # 缓存和 WebSocket 中统一使用包含时区偏移的 ISO 8601 字符串，
+                # 避免启用 USE_TZ 时各检测模型写入 naive datetime。
+                'timestamp': timestamp.isoformat(),
+                'mmsi': str(row.get('MMSI') or '').strip(),
+                'name': normalise_ais_name(row.get('Name')),
                 'lon': float(row.get('longitude')),
                 'lat': float(row.get('latitude')),
                 # COG/course (航向), SOG/speed (航速)
                 'course': float(row.get('course')), 
-                'speed': float(row.get('speed')),  
+                'speed': float(row.get('speed')),
+                'heading': optional_float('heading'),
+                'imo': str(row.get('IMO') or '').strip(),
+                'flag': str(row.get('flag') or '').strip(),
+                'iso3': str(row.get('iso3') or '').strip().upper(),
+                'draught': optional_float('draught'),
+                'ship_type': str(
+                    row.get('ship_type')
+                    or row.get('ship_and_cargo_type')
+                    or ''
+                ).strip(),
+                'length': optional_float('length'),
+                'width': optional_float('width'),
+                'accuracy': optional_float('accuracy'),
+                # 抛锚检测需要区分锚泊/靠泊。缺失状态时仍可使用低航速规则。
+                'nav_status': nav_status,
+                'at_dock': at_dock,
+                # 港区匹配信息用于排除港内正常停泊/作业船舶。
+                'matched_port_name': matched_port_name,
             }
         except (ValueError, TypeError) as e:
             # 如果经纬度或航速无法转换为浮点数，则跳过该行
@@ -96,7 +178,11 @@ class Command(BaseCommand):
                         continue
 
                     # 将数据存储到Redis中
-                    cache.set('latest_ais_data_raw', ais_data, timeout=15)
+                    cache.set(
+                        'latest_ais_data_raw',
+                        ais_data,
+                        timeout=getattr(settings, 'CACHE_TTL', 300),
+                    )
                     self.stdout.write(self.style.SUCCESS("已更新系统公共变量: latest_ais_data_raw"))
                         
                     # 5. 构造并发送消息到 Channels 群组
@@ -109,6 +195,20 @@ class Command(BaseCommand):
                     )
 
                     self.stdout.write(self.style.SUCCESS(f"Pushed update from: {latest_file} ({len(ais_data)} ships)"))
+
+                    # 只投递轻量触发信号。独立 detection_worker 负责执行
+                    # 算法，避免重型检测阻塞下一批 AIS 数据推送。
+                    queue_status = enqueue_all_detections(
+                        ship_list=ais_data
+                    )
+                    queued_count = sum(queue_status.values())
+                    self.stdout.write(
+                        self.style.NOTICE(
+                            "Backend detection triggers: "
+                            f"{queued_count} queued, "
+                            f"{len(queue_status) - queued_count} coalesced"
+                        )
+                    )
                     
                     # 6. 【关键操作】标记文件为已处理
                     processed_files.add(latest_file)

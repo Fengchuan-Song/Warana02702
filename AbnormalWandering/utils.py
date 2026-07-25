@@ -1,289 +1,316 @@
-import numpy as np
-import pandas as pd
-from shapely.geometry import Point, Polygon
-from .Tdkc import TDKC  # 确保 Tdkc.py 在同级目录下
+from collections import Counter
+from math import asin, atan2, cos, degrees, isfinite, radians, sin, sqrt
+
+from django.conf import settings
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 
-# --- 以下函数直接来自 LoiteringBehaviour.py，保持不变 ---
-FIXED_REGION_COORDS = [
-    (113.6109833, 22.1700302),  # 左下角 (最小经度, 最小纬度)
-    (113.7926567, 22.2080471)   # 右上角 (最大经度, 最大纬度)
-]
+DEFAULT_CONFIG = {
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
+    "min_points": 10,
+    "min_duration_minutes": 10,
+    "min_path_distance_metres": 300,
+    "min_leg_distance_metres": 20,
+    "min_turn_angle_degrees": 45,
+    "min_turn_count": 3,
+    "max_displacement_ratio": 0.65,
+    "max_gap_minutes": 5,
+    "min_area_point_ratio": 0.5,
+    "monitored_areas": [
+        {
+            "name": "异常徘徊监控区",
+            "bounds": (113.6109833, 22.1700302, 113.7926567, 22.2080471),
+        }
+    ],
+}
 
-def sed(pm, ps, pe):
-    """
-    垂直同步距离
-    """
-    # 计算中间点的预测坐标
-    xm_prime = ps[0] + (pm[2] - ps[2]).total_seconds() / (pe[2] - ps[2]).total_seconds() * (pe[0] - ps[0])
-    ym_prime = ps[1] + (pm[2] - ps[2]).total_seconds() / (pe[2] - ps[2]).total_seconds() * (pe[1] - ps[1])
 
-    # 计算同步欧式距离
-    sed = np.sqrt((pm[0] - xm_prime) ** 2 + (pm[1] - ym_prime) ** 2)
-    return sed
+def get_wandering_config():
+    configured = getattr(settings, "ABNORMAL_WANDERING", {})
+    config = {
+        **DEFAULT_CONFIG,
+        **(configured if isinstance(configured, dict) else {}),
+    }
+    config["analysis_window_minutes"] = max(
+        1, int(config["analysis_window_minutes"])
+    )
+    config["retention_window_minutes"] = max(
+        config["analysis_window_minutes"],
+        int(config["retention_window_minutes"]),
+    )
+    config["min_points"] = max(4, int(config["min_points"]))
+    config["min_duration_minutes"] = max(
+        0.0, float(config["min_duration_minutes"])
+    )
+    config["min_path_distance_metres"] = max(
+        1.0, float(config["min_path_distance_metres"])
+    )
+    config["min_leg_distance_metres"] = max(
+        0.0, float(config["min_leg_distance_metres"])
+    )
+    config["min_turn_angle_degrees"] = min(
+        180.0,
+        max(0.0, float(config["min_turn_angle_degrees"])),
+    )
+    config["min_turn_count"] = max(1, int(config["min_turn_count"]))
+    config["max_displacement_ratio"] = min(
+        1.0,
+        max(0.0, float(config["max_displacement_ratio"])),
+    )
+    config["max_gap_minutes"] = max(
+        0.1, float(config["max_gap_minutes"])
+    )
+    config["min_area_point_ratio"] = min(
+        1.0,
+        max(0.0, float(config["min_area_point_ratio"])),
+    )
+    if not isinstance(config["monitored_areas"], (list, tuple)):
+        config["monitored_areas"] = DEFAULT_CONFIG["monitored_areas"]
+    else:
+        config["monitored_areas"] = list(config["monitored_areas"])
+    return config
 
 
-def split_original_segments(original_points, compressed_points):
-    """
-    将原始轨迹按压缩点分割为多个子段
-    """
-    segments = []
-    compressed_times = [t for (x, y, t, s, c) in compressed_points]
+def haversine_metres(p1, p2):
+    """Return great-circle distance for two ``(lon, lat)`` points."""
+    lon1, lat1 = radians(float(p1[0])), radians(float(p1[1]))
+    lon2, lat2 = radians(float(p2[0])), radians(float(p2[1]))
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    value = (
+        sin(dlat / 2) ** 2
+        + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    )
+    return 2 * 6_371_000 * asin(sqrt(min(1.0, value)))
 
-    for i in range(len(compressed_times) - 1):
-        start_time = compressed_times[i]
-        end_time = compressed_times[i + 1]
 
-        segment = [
-            p for p in original_points
-            if start_time <= p[2] <= end_time
-        ]
-        segments.append(segment)
+def bearing_degrees(p1, p2):
+    """Return initial bearing in degrees for two ``(lon, lat)`` points."""
+    lon1, lat1 = radians(float(p1[0])), radians(float(p1[1]))
+    lon2, lat2 = radians(float(p2[0])), radians(float(p2[1]))
+    dlon = lon2 - lon1
+    x = sin(dlon) * cos(lat2)
+    y = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon)
+    return (degrees(atan2(x, y)) + 360) % 360
 
+
+def heading_change(first, second):
+    difference = abs(float(second) - float(first)) % 360
+    return min(difference, 360 - difference)
+
+
+def get_monitored_area(lat, lon, monitored_areas=None):
+    areas = (
+        monitored_areas
+        if monitored_areas is not None
+        else get_wandering_config()["monitored_areas"]
+    )
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(lat) or not isfinite(lon):
+        return None
+
+    for area in areas:
+        if not isinstance(area, dict):
+            continue
+        bounds = area.get("bounds")
+        if not isinstance(bounds, (list, tuple)) or len(bounds) != 4:
+            continue
+        try:
+            min_lon, min_lat, max_lon, max_lat = map(float, bounds)
+        except (TypeError, ValueError):
+            continue
+        if min_lon <= lon <= max_lon and min_lat <= lat <= max_lat:
+            return area
+    return None
+
+
+def _parse_timestamp(value):
+    if hasattr(value, "tzinfo"):
+        timestamp = value
+    else:
+        timestamp = parse_datetime(str(value or ""))
+    if timestamp is None:
+        return None
+    if timezone.is_naive(timestamp):
+        timestamp = timezone.make_aware(
+            timestamp,
+            timezone.get_current_timezone(),
+        )
+    return timestamp
+
+
+def _normalise_points(rows):
+    points = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            lat = float(row.get("latitude", row.get("Latitude")))
+            lon = float(row.get("longitude", row.get("Longitude")))
+            speed = float(row.get("speed", row.get("Speed", 0)))
+            course = float(row.get("course", row.get("Heading", 0)))
+        except (TypeError, ValueError):
+            continue
+        timestamp = _parse_timestamp(
+            row.get("timestamp", row.get("Timestamp"))
+        )
+        if (
+            timestamp is None
+            or not all(
+                isfinite(value) for value in (lat, lon, speed, course)
+            )
+            or not (-90 <= lat <= 90 and -180 <= lon <= 180)
+        ):
+            continue
+        points.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "timestamp": timestamp,
+                "speed": max(0.0, speed),
+                "course": course % 360,
+            }
+        )
+    return sorted(points, key=lambda item: item["timestamp"])
+
+
+def _split_on_time_gaps(points, max_gap_minutes):
+    if not points:
+        return []
+    segments = [[points[0]]]
+    for point in points[1:]:
+        gap_minutes = (
+            point["timestamp"] - segments[-1][-1]["timestamp"]
+        ).total_seconds() / 60
+        if gap_minutes > max_gap_minutes:
+            segments.append([point])
+        else:
+            segments[-1].append(point)
     return segments
 
 
-def calculate_curvature(segment):
-    """
-    曲率计算
-    """
-    curvatures = []
-    for i in range(len(segment)):
-        if i == 0 or i == len(segment) - 1:
-            curvatures.append(0.0)
-            continue
+def _analyse_segment(segment, config):
+    if len(segment) < config["min_points"]:
+        return None
 
-        p_prev = np.array([segment[i - 1][0], segment[i - 1][1]])
-        p_curr = np.array([segment[i][0], segment[i][1]])
-        p_next = np.array([segment[i + 1][0], segment[i + 1][1]])
+    duration_minutes = (
+        segment[-1]["timestamp"] - segment[0]["timestamp"]
+    ).total_seconds() / 60
+    if duration_minutes < config["min_duration_minutes"]:
+        return None
 
-        if (np.array_equal(p_prev, p_curr) or
-                np.array_equal(p_curr, p_next) or
-                np.array_equal(p_prev, p_next)):
-            curvatures.append(0.0)
-            continue
+    path_distance = 0.0
+    meaningful_bearings = []
+    for start, end in zip(segment, segment[1:]):
+        start_position = (start["lon"], start["lat"])
+        end_position = (end["lon"], end["lat"])
+        leg_distance = haversine_metres(start_position, end_position)
+        path_distance += leg_distance
+        if leg_distance >= config["min_leg_distance_metres"]:
+            meaningful_bearings.append(
+                bearing_degrees(start_position, end_position)
+            )
 
-        vec1 = p_curr - p_prev
-        vec2 = p_next - p_curr
+    if path_distance < config["min_path_distance_metres"]:
+        return None
 
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-        cos_alpha = dot_product / (norm1 * norm2)
-        alpha_i = np.arccos(cos_alpha)
-
-        Q_i = np.linalg.norm(p_next - p_prev)
-        curvature = abs(2 * np.sin(alpha_i) / Q_i)
-        curvatures.append(curvature)
-
-    return curvatures
-
-
-def detect_segment_wave_points(segment, global_curvatures, global_trajectory):
-    """
-    检测单个子段中的波点
-    """
-    wave_points = []
-    if not segment:
-        return wave_points
-
-    start_time = segment[0][2]
-    end_time = segment[-1][2]
-
-    start_idx = next(i for i, p in enumerate(global_trajectory) if p[2] == start_time)
-    end_idx = next(i for i, p in enumerate(global_trajectory) if p[2] == end_time)
-
-    sub_curvatures = global_curvatures[start_idx:end_idx + 1]
-
-    for i in range(1, len(sub_curvatures) - 1):
-        if sub_curvatures[i] > sub_curvatures[i - 1] and sub_curvatures[i] > sub_curvatures[i + 1]:
-            wave_points.append(segment[i])
-
-    return wave_points
-
-
-def filter_global_wave_points(segment, angle_threshold=100):
-    """
-    全局波点筛选
-    """
-    filtered_points = []
-    for i in range(1, len(segment) - 1):
-        p_prev = segment[i - 1]
-        p_curr = segment[i]
-        p_next = segment[i + 1]
-
-        vec_prev = np.array([p_prev[0] - p_curr[0], p_prev[1] - p_curr[1]])
-        vec_next = np.array([p_next[0] - p_curr[0], p_next[1] - p_curr[1]])
-
-        cos_angle = np.dot(vec_prev, vec_next) / (np.linalg.norm(vec_prev) * np.linalg.norm(vec_next))
-        angle = np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
-
-        if 0 < angle < angle_threshold:
-            filtered_points.append(p_curr)
-
-    return filtered_points
-
-
-def extract_wandering_segments(compressed_points, wandering_points, threshold=2):
-    """
-    检测单个子段中的波点是否大于阈值
-    """
-    wandering_segments = []
-    wandering_segment_info = []
-
-    for i in range(len(compressed_points) - 1):
-        start = compressed_points[i]
-        end = compressed_points[i + 1]
-
-        segment_wandering_points = [
-            p for p in wandering_points
-            if start[2] < p[2] < end[2]
-        ]
-
-        count = len(segment_wandering_points)
-        if count >= threshold:
-            wandering_segments.append((start, end))
-            wandering_segment_info.append({
-                'start': start,
-                'end': end,
-                'wandering_points': segment_wandering_points,
-                'count': count,
-                'segment_index': i
-            })
-
-    return wandering_segments, wandering_segment_info
-
-
-def check_region_wandering(wandering_segment_info):
-    """
-    检查徘徊行为是否出现在固定区域内
-    """
-    # 直接使用顶部的常量
-    lon_min, lat_min = FIXED_REGION_COORDS[0]
-    lon_max, lat_max = FIXED_REGION_COORDS[1]
-
-    region_polygon = Polygon([
-        (lon_min, lat_min),
-        (lon_max, lat_min),
-        (lon_max, lat_max),
-        (lon_min, lat_max),
-        (lon_min, lat_min)
-    ])
-
-    abnormal_segments = []
-    normal_segments = []
-
-    for segment_info in wandering_segment_info:
-        wandering_points = segment_info['wandering_points']
-        is_abnormal = False
-
-        # 1. 检查波点是否在区域内
-        for point in wandering_points:
-            # 注意：原数据结构通常为 (Lat, Lon, ...) 或 (Lon, Lat)，需根据你的实际数据确认索引
-            # 假设 point[0]是Lat, point[1]是Lon (根据原始CSV读取习惯)
-            # Shapely Point 接受 (Longitude, Latitude)
-            lon, lat = point[1], point[0]
-            point_geom = Point(lon, lat)
-
-            if region_polygon.contains(point_geom):
-                is_abnormal = True
-                break
-
-        # 2. 如果波点都不在区域内，检查整个段的首尾点
-        if not is_abnormal:
-            start_point = segment_info['start']
-            end_point = segment_info['end']
-
-            # 同样假设 point[1]是Lon, point[0]是Lat
-            start_geom = Point(start_point[1], start_point[0])
-            end_geom = Point(end_point[1], end_point[0])
-
-            if region_polygon.contains(start_geom) or region_polygon.contains(end_geom):
-                is_abnormal = True
-
-        if is_abnormal:
-            abnormal_segments.append(segment_info)
-        else:
-            normal_segments.append(segment_info)
-
-    return abnormal_segments, normal_segments
-
-
-# --- 核心入口函数 ---
-
-def run_loitering_analysis(trajectory_queryset):
-    """
-    接收 Django QuerySet 或 字典列表，进行分析
-    """
-    # 1. 将 QuerySet 转换为 DataFrame
-    # 这种方式兼容 Django Model 对象列表和普通字典列表
-    if hasattr(trajectory_queryset, 'values'):
-        # 如果是 Django QuerySet
-        data = pd.DataFrame(list(trajectory_queryset.values(
-            'latitude', 'longitude', 'timestamp', 'speed', 'course'
-        )))
-    else:
-        # 如果是普通列表
-        data = pd.DataFrame(trajectory_queryset)
-
-    if data.empty:
-        return {'is_abnormal': False, 'abnormal_count': 0, 'abnormal_segments': []}
-
-    # 映射列名以匹配算法 (原算法用 Heading, 输入是 Course)
-    data.rename(columns={
-        'latitude': 'Latitude',
-        'longitude': 'Longitude',
-        'timestamp': 'Timestamp',
-        'speed': 'Speed',
-        'course': 'Heading'
-    }, inplace=True)
-
-    data['Timestamp'] = pd.to_datetime(data['Timestamp'])
-
-    # 提取点位 (注意：算法可能要求 list of tuples)
-    # 顺序：Lat, Lon, Time, Speed, Heading
-    points = data.loc[:, ['Latitude', 'Longitude', 'Timestamp', 'Speed', 'Heading']].values
-    if isinstance(points, np.ndarray):
-        points = [tuple(point) for point in points]
-
-    # --- 以下逻辑保持不变 ---
-    # 2. 压缩
-    compressed_points = TDKC(points)
-
-    # 3. 分段
-    segments = split_original_segments(points, compressed_points)
-
-    # 4. 曲率计算
-    curvatures = calculate_curvature(points)
-
-    # 5. 波点检测
-    all_wave_points = []
-    for segment in segments:
-        if len(segment) < 3: continue
-        wave_points = detect_segment_wave_points(segment, curvatures, points)
-        wandering_points = filter_global_wave_points(wave_points)
-        all_wave_points.extend(wandering_points)
-
-    # 6. 提取徘徊段
-    wandering_segments, wandering_segment_info = extract_wandering_segments(
-        compressed_points, all_wave_points, threshold=2
+    turn_angles = [
+        heading_change(first, second)
+        for first, second in zip(
+            meaningful_bearings,
+            meaningful_bearings[1:],
+        )
+    ]
+    turn_count = sum(
+        angle >= config["min_turn_angle_degrees"]
+        for angle in turn_angles
     )
+    if turn_count < config["min_turn_count"]:
+        return None
 
-    # 7. 区域判定
-    abnormal_segments, normal_segments = check_region_wandering(wandering_segment_info)
+    displacement = haversine_metres(
+        (segment[0]["lon"], segment[0]["lat"]),
+        (segment[-1]["lon"], segment[-1]["lat"]),
+    )
+    displacement_ratio = displacement / path_distance
+    if displacement_ratio > config["max_displacement_ratio"]:
+        return None
 
-    # 8. 格式化结果
-    result = {
-        'is_abnormal': len(abnormal_segments) > 0,
-        'abnormal_count': len(abnormal_segments),
-        'abnormal_segments': []
+    area_names = []
+    for point in segment:
+        area = get_monitored_area(
+            point["lat"],
+            point["lon"],
+            config["monitored_areas"],
+        )
+        if area is not None:
+            area_names.append(area.get("name") or "异常徘徊监控区")
+    area_ratio = len(area_names) / len(segment)
+    if area_ratio < config["min_area_point_ratio"]:
+        return None
+
+    area_name = Counter(area_names).most_common(1)[0][0]
+    return {
+        "start_time": segment[0]["timestamp"].isoformat(),
+        "end_time": segment[-1]["timestamp"].isoformat(),
+        "duration_minutes": round(duration_minutes, 2),
+        "point_count": len(segment),
+        "turn_count": turn_count,
+        "wave_point_count": turn_count,
+        "path_distance_metres": round(path_distance, 2),
+        "displacement_metres": round(displacement, 2),
+        "displacement_ratio": round(displacement_ratio, 4),
+        "average_speed_knots": round(
+            sum(point["speed"] for point in segment) / len(segment),
+            2,
+        ),
+        "location": {
+            "lat": sum(point["lat"] for point in segment) / len(segment),
+            "lon": sum(point["lon"] for point in segment) / len(segment),
+        },
+        "area": area_name,
     }
 
-    for seg in abnormal_segments:
-        result['abnormal_segments'].append({
-            'start_time': str(seg['start'][2]),
-            'end_time': str(seg['end'][2]),
-            'wave_point_count': seg['count']
-        })
 
-    return result
+def detect_loitering_events(points, config=None):
+    config = config or get_wandering_config()
+    normalised = _normalise_points(points)
+    events = []
+    for segment in _split_on_time_gaps(
+        normalised,
+        config["max_gap_minutes"],
+    ):
+        event = _analyse_segment(segment, config)
+        if event is not None:
+            events.append(event)
+    return events
+
+
+def run_loitering_analysis(trajectory_queryset, config=None):
+    """Analyse a QuerySet or list of trajectory dictionaries."""
+    config = config or get_wandering_config()
+    if hasattr(trajectory_queryset, "values"):
+        rows = list(
+            trajectory_queryset.values(
+                "latitude",
+                "longitude",
+                "timestamp",
+                "speed",
+                "course",
+            )
+        )
+    else:
+        rows = list(trajectory_queryset or [])
+
+    abnormal_segments = detect_loitering_events(rows, config)
+    return {
+        "is_abnormal": bool(abnormal_segments),
+        "abnormal_count": len(abnormal_segments),
+        "abnormal_segments": abnormal_segments,
+    }

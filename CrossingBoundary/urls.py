@@ -1,6 +1,14 @@
 from django.urls import path
-from .views import detect_crossing_boundary
+from AISData.views import cached_detection_result
+from . import views
 
 urlpatterns = [
-    path('detectCrossingBoundary/', detect_crossing_boundary, name='detect_crossing_boundary'),
+    path('fences/', views.fence_collection, name='fence_collection'),
+    path('fences/<int:fence_id>/', views.fence_detail, name='fence_detail'),
+    path(
+        'detectCrossingBoundary/',
+        cached_detection_result,
+        {'feature_id': 'detect-CrossingBoundary'},
+        name='detect_crossing_boundary',
+    ),
 ]

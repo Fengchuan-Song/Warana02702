@@ -1,6 +1,11 @@
 from django.urls import path
-from . import views
+from AISData.views import cached_detection_result
 
 urlpatterns = [
-    path('detectAbnormalParking/', views.detectAbnormalParking, name='detectAbnormalParking'),
+    path(
+        'detectAbnormalParking/',
+        cached_detection_result,
+        {'feature_id': 'detect-abnormalStaying'},
+        name='detectAbnormalParking',
+    ),
 ]

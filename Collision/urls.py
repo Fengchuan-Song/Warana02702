@@ -1,6 +1,11 @@
 from django.urls import path
-from .views import detect_collision
+from AISData.views import cached_detection_result
 
 urlpatterns = [
-    path('detectCollision/', detect_collision, name='detect_collision'),
+    path(
+        'detectCollision/',
+        cached_detection_result,
+        {'feature_id': 'detect-collision'},
+        name='detect_collision',
+    ),
 ]

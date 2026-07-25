@@ -19,6 +19,18 @@ class DoubleDraggingPoint(models.Model):
         verbose_name = "双拖轨迹点"
         verbose_name_plural = "双拖轨迹点列表"
         ordering = ["-timestamp"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["mmsi", "timestamp"],
+                name="uniq_double_dragging_mmsi_timestamp",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["mmsi", "timestamp"],
+                name="double_drag_mmsi_ts_idx",
+            )
+        ]
 
     def __str__(self):
         return f"{self.mmsi} - {self.timestamp}"

@@ -161,7 +161,12 @@ CHANNEL_LAYERS = {
         # 'BACKEND': 'channels.layers.InMemoryChannelLayer' 
         # 生产环境请使用：
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': { 'hosts': [('127.0.0.1', 6379)], }
+        'CONFIG': {
+            'hosts': [('127.0.0.1', 6379)],
+            # AIS 快照只需要最新数据，不应为失联客户端积压大量旧帧。
+            'capacity': 10,
+            'expiry': 15,
+        }
     },
 }
 
@@ -178,3 +183,248 @@ CACHES = {
 
 # 设置缓存过期时间（可选，默认 5 分钟）
 CACHE_TTL = 60 * 5
+
+# 异常停泊检测参数。监控区域使用 (最小经度, 最小纬度, 最大经度, 最大纬度)。
+ABNORMAL_PARKING = {
+    "analysis_window_minutes": 120,
+    "retention_window_minutes": 240,
+    "max_speed_knots": 0.5,
+    "distance_threshold_metres": 50,
+    "min_duration_minutes": 30,
+    "min_points": 3,
+    "monitored_areas": [
+        {
+            "name": "异常停泊监控区",
+            "bounds": (
+                113.6279434,
+                22.1376273,
+                113.7935190,
+                22.2008193,
+            ),
+        },
+    ],
+}
+
+# 非法驻留检测：只有在明确配置的禁停区域内持续低速停留才预警。
+ILLEGAL_STAYING = {
+    "analysis_window_minutes": 120,
+    "retention_window_minutes": 240,
+    "max_speed_knots": 0.5,
+    "distance_threshold_metres": 50,
+    "min_duration_minutes": 30,
+    "min_points": 3,
+    "maximum_gap_seconds": 180,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    "event_retention_minutes": 60,
+    "forbidden_areas": [
+        {
+            "name": "非法驻留监控区",
+            "bounds": (
+                113.6279434,
+                22.1376273,
+                113.7935190,
+                22.2008193,
+            ),
+            "reason": "该区域禁止未经许可的长时间驻留",
+        }
+    ],
+}
+
+# 异常徘徊检测参数。启用的 MonitorRegion 数据库记录会覆盖默认监控区域。
+ABNORMAL_WANDERING = {
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
+    "min_points": 10,
+    "min_duration_minutes": 10,
+    "min_path_distance_metres": 300,
+    "min_leg_distance_metres": 20,
+    "min_turn_angle_degrees": 45,
+    "min_turn_count": 3,
+    "max_displacement_ratio": 0.65,
+    "max_gap_minutes": 5,
+    "min_area_point_ratio": 0.5,
+    "monitored_areas": [
+        {
+            "name": "异常徘徊监控区",
+            "bounds": (
+                113.6109833,
+                22.1700302,
+                113.7926567,
+                22.2080471,
+            ),
+        },
+    ],
+}
+
+# 船舶碰撞风险检测。DCPA/TCPA 阈值需要结合具体水域、船型及值班规则校准。
+COLLISION_DETECTION = {
+    "warning_tcpa_minutes": 15,
+    "critical_tcpa_minutes": 5,
+    "warning_dcpa_metres": 300,
+    "critical_dcpa_metres": 150,
+    "immediate_distance_metres": 100,
+    "vessel_buffer_metres": 50,
+    "minimum_relative_speed_mps": 0.2,
+    "max_position_age_seconds": 120,
+    "event_retention_minutes": 30,
+}
+
+# 双拖捕鱼预警参数。轨迹窗口必须覆盖最短持续时间。
+DOUBLE_DRAGGING_DETECTION = {
+    "analysis_window_minutes": 45,
+    "retention_window_minutes": 60,
+    "min_duration_minutes": 30,
+    "min_aligned_points": 30,
+    "alignment_tolerance_seconds": 45,
+    "min_pair_distance_metres": 100,
+    "max_pair_distance_metres": 2000,
+    "candidate_distance_margin_metres": 500,
+    "min_operating_speed_knots": 1,
+    "max_operating_speed_knots": 8,
+    "max_speed_difference_knots": 1.5,
+    "max_course_difference_degrees": 20,
+    "max_lateral_deviation_degrees": 30,
+    "max_distance_std_metres": 250,
+    "min_distance_ratio": 0.8,
+    "min_course_ratio": 0.8,
+    "min_lateral_ratio": 0.7,
+    "min_speed_similarity_ratio": 0.8,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    "event_retention_minutes": 30,
+}
+
+# 海上围栏跨界状态检测参数。
+CROSSING_BOUNDARY_DETECTION = {
+    "max_position_age_seconds": 120,
+    "boundary_tolerance_metres": 10,
+    "state_retention_hours": 24,
+    # 越界是瞬时事件，保留一段时间供界面展示，避免下一帧立即覆盖。
+    "event_retention_minutes": 30,
+    "max_vertices": 500,
+}
+
+# 围栏和走私研判依赖完整前后轨迹，不能像持续状态模型一样合并AIS快照。
+# 队列设置上限用于在检测进程异常时保护Redis。
+TRAJECTORY_DETECTION_QUEUE_MAX_SNAPSHOTS = 500
+
+# 海上走私风险研判。区域和航次许可由 Smuggling 数据表维护。
+SMUGGLING_DETECTION = {
+    "timezone": "Asia/Shanghai",
+    "night_start_hour": 20,
+    "night_end_hour": 6,
+    "max_position_age_seconds": 120,
+    "maximum_gap_seconds": 180,
+    "origin_minimum_duration_seconds": 60,
+    "origin_minimum_observations": 3,
+    "maximum_voyage_hours": 12,
+    "state_retention_hours": 24,
+    "landing_speed_knots": 1.5,
+    "landing_minimum_duration_seconds": 300,
+    "landing_minimum_observations": 3,
+    "draught_change_metres": 0.5,
+    "small_craft_length_metres": 50,
+    "fast_craft_speed_knots": 15,
+    "event_retention_minutes": 60,
+    "minimum_risk_score": 40,
+}
+
+# 高速快艇预警：有效 AIS 航速持续大于 30 节，且不判断船型。
+HIGH_SPEED_DETECTION = {
+    "default_speed_limit_knots": 30,
+    "minimum_duration_seconds": 300,
+    "maximum_gap_seconds": 90,
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    # AIS SOG 102.3 表示数据不可用，102.2 表示 102.2 节或更高。
+    "max_valid_speed_knots": 102.2,
+    "high_risk_excess_knots": 10,
+    "event_retention_minutes": 30,
+}
+
+# 低速船舶预警：仅分析处于航行状态的船舶，zones 可配置分区最低航速。
+LOW_SPEED_DETECTION = {
+    "default_minimum_speed_knots": 1.5,
+    "minimum_duration_seconds": 300,
+    "minimum_observations": 5,
+    "maximum_gap_seconds": 90,
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    # AIS SOG 102.3 表示数据不可用。
+    "max_valid_speed_knots": 102.2,
+    "event_retention_minutes": 30,
+    # 0=机动航行，15=未定义；缺失状态由 allow_missing_nav_status 控制。
+    "eligible_nav_statuses": [0, 15],
+    "allow_missing_nav_status": True,
+    "monitored_only": False,
+    "zones": [],
+}
+
+# 航道偏离：历史航迹仅覆盖琼州海峡知识库范围，区域外不执行检测。
+DEVIATION_DETECTION = {
+    "minimum_speed_knots": 2,
+    "minimum_duration_seconds": 120,
+    "minimum_observations": 5,
+    "maximum_gap_seconds": 90,
+    "minimum_displacement_metres": 500,
+    "route_entry_distance_metres": 750,
+    "deviation_distance_metres": 1500,
+    "confirmation_observations": 3,
+    "confirmation_duration_seconds": 60,
+    "direction_tolerance_degrees": 45,
+    "minimum_direction_coherence": 0.5,
+    "coverage_margin_metres": 20000,
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    "max_valid_speed_knots": 102.2,
+    "state_retention_minutes": 30,
+    "eligible_nav_statuses": [0, 15],
+    "allow_missing_nav_status": True,
+}
+
+# 非法搭靠：仅检测中国籍船舶与外籍船舶持续低速、近距离搭靠。
+# 有效许可记录通过 /IllegalBerthing/permits/ 维护。
+ILLEGAL_BERTHING_DETECTION = {
+    "chinese_mids": ["412", "413", "414"],
+    "base_contact_distance_metres": 100,
+    "maximum_contact_distance_metres": 250,
+    "length_distance_factor": 0.5,
+    "contact_buffer_metres": 25,
+    "maximum_speed_knots": 2,
+    "maximum_relative_speed_knots": 0.5,
+    "minimum_duration_seconds": 300,
+    "minimum_observations": 5,
+    "maximum_gap_seconds": 90,
+    "max_position_age_seconds": 120,
+    # AIS SOG 102.3 表示数据不可用。
+    "max_valid_speed_knots": 102.2,
+    "state_retention_minutes": 30,
+}
+
+# 异常接驳：全国法规未规定统一作业时段和统一最高航速，具体限制来自
+# 主管机关批准的作业方案/航行通告，并通过 AbnormalTransfer 作业计划维护。
+ABNORMAL_TRANSFER_DETECTION = {
+    "base_contact_distance_metres": 100,
+    "maximum_contact_distance_metres": 250,
+    "length_distance_factor": 0.5,
+    "contact_buffer_metres": 25,
+    "maximum_candidate_speed_knots": 20,
+    "maximum_relative_speed_knots": 1,
+    "maximum_course_difference_degrees": 30,
+    "course_check_minimum_speed_knots": 1,
+    "minimum_duration_seconds": 120,
+    "minimum_observations": 3,
+    "maximum_gap_seconds": 90,
+    "max_position_age_seconds": 120,
+    # AIS SOG 102.3 表示数据不可用。
+    "max_valid_speed_knots": 102.2,
+    "speed_tolerance_knots": 0.1,
+    "state_retention_minutes": 30,
+}

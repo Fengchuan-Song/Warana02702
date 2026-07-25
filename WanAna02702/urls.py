@@ -23,6 +23,7 @@ urlpatterns = [
     # path("", auth_view.LoginView.as_view(), name='login'),
     path("", include('home.urls')),
     path("admin/", admin.site.urls),
+    path("AISData/", include('AISData.urls')),
 
     # 融合模型
     path("VISAIS/", include('VISAIS.urls')),            # 可见光-AIS数据融合

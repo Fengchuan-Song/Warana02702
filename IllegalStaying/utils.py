@@ -1,135 +1,173 @@
-import pandas as pd
-import numpy as np
-from math import radians, sin, cos, sqrt, asin
+from math import isfinite
 
-# ================= 监控区域配置 =================
-# 113.6279434°E-113.7935190°E, 22.1376273°N-22.2008193°N
-LON_MIN, LON_MAX = 113.6279434, 113.7935190
-LAT_MIN, LAT_MAX = 22.1376273, 22.2008193
+from django.conf import settings
+
+from IllegalAnchored.zones import distance_m, point_in_polygon
 
 
-# ===============================================
-
-def haversine(p1, p2):
-    """
-    计算两点之间的地理距离（Haversine公式）
-    :param p1: (lon1, lat1)
-    :param p2: (lon2, lat2)
-    :return: 距离（单位：公里）
-    """
-    # 确保输入是 float 类型
-    lon1, lat1 = float(p1[0]), float(p1[1])
-    lon2, lat2 = float(p2[0]), float(p2[1])
-
-    lat1, lon1 = radians(lat1), radians(lon1)
-    lat2, lon2 = radians(lat2), radians(lon2)
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-    return 2 * 6371 * asin(sqrt(a))
-
-
-def is_in_monitored_area(lat, lon):
-    """
-    判断点是否在监控区域内
-    """
-    return (LON_MIN <= lon <= LON_MAX) and (LAT_MIN <= lat <= LAT_MAX)
+DEFAULT_CONFIG = {
+    "analysis_window_minutes": 120,
+    "retention_window_minutes": 240,
+    "max_speed_knots": 0.5,
+    "distance_threshold_metres": 50,
+    "min_duration_minutes": 30,
+    "min_points": 3,
+    "maximum_gap_seconds": 180,
+    "max_position_age_seconds": 120,
+    "future_tolerance_seconds": 120,
+    "event_retention_minutes": 60,
+    "forbidden_areas": [
+        {
+            "name": "非法驻留监控区",
+            "bounds": (
+                113.6279434,
+                22.1376273,
+                113.7935190,
+                22.2008193,
+            ),
+            "reason": "该区域禁止未经许可的长时间驻留",
+        }
+    ],
+}
 
 
-def detect_parking_events(points_list, distance_threshold=0.01, time_threshold_minutes=30, min_points=3):
-    """
-    核心检测逻辑
-    :param points_list: 列表 [(lat, lon, timestamp), ...]
-    """
-    if len(points_list) < 2:
-        return []
-
-    # 按时间排序
-    points_sorted = sorted(points_list, key=lambda x: x[2])
-
-    A = []
-    As = []
-    Ps = points_sorted[0]
-    A.append(Ps)
-
-    for k in range(1, len(points_sorted)):
-        Pk = points_sorted[k]
-        # 注意：Ps[:2] 取 lat, lon。haversine 需要 (lon, lat) 顺序，需要反转一下
-        # 假设 points_list 结构是 (lat, lon, time)
-        # Ps[1] is lon, Ps[0] is lat
-        d_k = haversine((Ps[1], Ps[0]), (Pk[1], Pk[0]))
-
-        if d_k < distance_threshold:
-            A.append(Pk)
-        else:
-            Pe = A[-1]
-            start_time = Ps[2]
-            end_time = Pe[2]
-            time_diff = (end_time - start_time).total_seconds() / 60
-
-            if len(A) > min_points and time_diff > time_threshold_minutes:
-                As.append(A)
-
-            A = [Pk]
-            Ps = Pk
-
-    # 处理最后一段
-    if len(A) > min_points:
-        start_time = A[0][2]
-        end_time = A[-1][2]
-        time_diff = (end_time - start_time).total_seconds() / 60
-        if time_diff > time_threshold_minutes:
-            As.append(A)
-
-    return As
-
-
-def run_parking_analysis(queryset):
-    """
-    业务入口：接收 Django QuerySet，进行数据清洗和分析
-    """
-    # 1. 转为 DataFrame 进行预处理
-    if not queryset.exists():
-        return {'is_abnormal': False, 'events': []}
-
-    df = pd.DataFrame(list(queryset.values('latitude', 'longitude', 'timestamp', 'speed')))
-
-    # 2. 关键过滤：速度筛选 (speed <= 6)
-    # 过滤掉运动中的点，减少计算量并提高准确性
-    df_filtered = df[df['speed'] <= 6]
-
-    if df_filtered.empty:
-        return {'is_abnormal': False, 'events': []}
-
-    # 3. 提取点位 [(lat, lon, timestamp), ...]
-    points = df_filtered.loc[:, ['latitude', 'longitude', 'timestamp']].values.tolist()
-
-    # 4. 执行检测
-    raw_events = detect_parking_events(
-        points,
-        distance_threshold=0.01,  # 10米范围
-        time_threshold_minutes=30,  # 停留30分钟
-        min_points=3
+def get_staying_config():
+    configured = getattr(settings, "ILLEGAL_STAYING", {})
+    config = {
+        **DEFAULT_CONFIG,
+        **(configured if isinstance(configured, dict) else {}),
+    }
+    config["analysis_window_minutes"] = max(
+        1, int(config["analysis_window_minutes"])
     )
+    config["retention_window_minutes"] = max(
+        config["analysis_window_minutes"],
+        int(config["retention_window_minutes"]),
+    )
+    config["max_speed_knots"] = max(
+        0.0, float(config["max_speed_knots"])
+    )
+    config["distance_threshold_metres"] = max(
+        1.0, float(config["distance_threshold_metres"])
+    )
+    config["min_duration_minutes"] = max(
+        0.0, float(config["min_duration_minutes"])
+    )
+    config["min_points"] = max(2, int(config["min_points"]))
+    config["maximum_gap_seconds"] = max(
+        1, int(config["maximum_gap_seconds"])
+    )
+    config["max_position_age_seconds"] = max(
+        0, int(config["max_position_age_seconds"])
+    )
+    config["future_tolerance_seconds"] = max(
+        0, int(config["future_tolerance_seconds"])
+    )
+    config["event_retention_minutes"] = max(
+        1, int(config["event_retention_minutes"])
+    )
+    if not isinstance(config["forbidden_areas"], (list, tuple)):
+        config["forbidden_areas"] = DEFAULT_CONFIG["forbidden_areas"]
+    return config
 
-    # 5. 分析结果是否在区域内
-    abnormal_events = []
-    for event in raw_events:
-        # 取第一个点判断位置
-        center_lat, center_lon = event[0][0], event[0][1]
 
-        if is_in_monitored_area(center_lat, center_lon):
-            start_t = event[0][2]
-            end_t = event[-1][2]
-            duration = (end_t - start_t).total_seconds() / 60
+def _finite_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
 
-            abnormal_events.append({
-                'start_time': str(start_t),
-                'end_time': str(end_t),
-                'duration': round(duration, 2)
-            })
 
+def _area_contains(area, lon, lat):
+    bounds = area.get("bounds")
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
+        cleaned = [_finite_float(value) for value in bounds]
+        if all(value is not None for value in cleaned):
+            min_lon, min_lat, max_lon, max_lat = cleaned
+            return min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
+
+    vertices = area.get("vertices")
+    if not isinstance(vertices, (list, tuple)) or len(vertices) < 3:
+        return False
+    cleaned = []
+    for point in vertices:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            return False
+        point_lon = _finite_float(point[0])
+        point_lat = _finite_float(point[1])
+        if point_lon is None or point_lat is None:
+            return False
+        cleaned.append((point_lon, point_lat))
+    return point_in_polygon(lon, lat, cleaned)
+
+
+def get_forbidden_area(lon, lat, areas=None):
+    areas = (
+        get_staying_config()["forbidden_areas"]
+        if areas is None
+        else areas
+    )
+    for index, area in enumerate(areas):
+        if not isinstance(area, dict) or not _area_contains(area, lon, lat):
+            continue
+        return {
+            "name": str(
+                area.get("name") or f"非法驻留区{index + 1}"
+            ).strip()[:100],
+            "reason": str(
+                area.get("reason")
+                or "该区域禁止未经许可的长时间驻留"
+            ).strip(),
+        }
+    return None
+
+
+def continuous_staying_event(points, config):
+    """Return the continuous stationary episode ending at the latest point."""
+    if not points:
+        return None
+    current = points[-1]
+    if current["speed"] > config["max_speed_knots"]:
+        return None
+
+    segment = []
+    later_timestamp = current["timestamp"]
+    for point in reversed(points):
+        gap_seconds = (
+            later_timestamp - point["timestamp"]
+        ).total_seconds()
+        if (
+            point["zone_name"] != current["zone_name"]
+            or point["speed"] > config["max_speed_knots"]
+            or gap_seconds < 0
+            or gap_seconds > config["maximum_gap_seconds"]
+            or distance_m(
+                point["longitude"],
+                point["latitude"],
+                current["longitude"],
+                current["latitude"],
+            )
+            > config["distance_threshold_metres"]
+        ):
+            break
+        segment.append(point)
+        later_timestamp = point["timestamp"]
+    segment.reverse()
+
+    if len(segment) < config["min_points"]:
+        return None
+    duration_minutes = (
+        segment[-1]["timestamp"] - segment[0]["timestamp"]
+    ).total_seconds() / 60
+    if duration_minutes < config["min_duration_minutes"]:
+        return None
+
+    speeds = [point["speed"] for point in segment]
     return {
-        'is_abnormal': len(abnormal_events) > 0,
-        'events': abnormal_events
+        "started_at": segment[0]["timestamp"],
+        "duration_minutes": duration_minutes,
+        "point_count": len(segment),
+        "average_speed_knots": sum(speeds) / len(speeds),
+        "max_speed_knots": max(speeds),
     }

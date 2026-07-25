@@ -1,85 +1,247 @@
-import json
-import traceback
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
-from django.core.cache import cache
-from django.utils.dateparse import parse_datetime
+import math
 from datetime import timedelta
-from . import models
-from .utils import run_loitering_analysis
 
-# 配置：只分析最近多少分钟的数据（滑动窗口大小）
-ANALYSIS_WINDOW_MINUTES = 30
-# 配置：只有当缓冲区积累了至少多少个点才开始分析
-MIN_POINTS_THRESHOLD = 10
+from django.core.cache import cache
+from django.http import JsonResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from django.views.decorators.csrf import csrf_exempt
+
+from AISData.normalization import normalise_ais_name
+from IllegalAnchored.zones import classify_location
+
+from .models import MonitorRegion, TrajectoryBuffer
+from .utils import (
+    get_monitored_area,
+    get_wandering_config,
+    run_loitering_analysis,
+)
+
+
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "是"}
+
+
+def _normalise_ship(ship_info):
+    if not isinstance(ship_info, dict):
+        return None
+    mmsi = str(ship_info.get("mmsi") or "").strip()
+    if not mmsi:
+        return None
+
+    try:
+        lon = float(ship_info.get("lon"))
+        lat = float(ship_info.get("lat"))
+        speed = float(ship_info.get("speed", 0))
+        course = float(ship_info.get("course", 0))
+    except (TypeError, ValueError):
+        return None
+    if not all(
+        math.isfinite(value) for value in (lon, lat, speed, course)
+    ):
+        return None
+    if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+        return None
+
+    timestamp = parse_datetime(str(ship_info.get("timestamp") or ""))
+    if timestamp is None:
+        return None
+    if timezone.is_naive(timestamp):
+        timestamp = timezone.make_aware(
+            timestamp,
+            timezone.get_current_timezone(),
+        )
+
+    raw_port_name = (
+        ship_info.get("matched_port_name")
+        or ship_info.get("matchedPortName")
+        or ""
+    )
+    matched_port_name = str(raw_port_name).strip()
+    if matched_port_name.lower() in {"nan", "none", "null"}:
+        matched_port_name = ""
+
+    return {
+        "mmsi": mmsi,
+        "name": normalise_ais_name(ship_info.get("name")),
+        "lon": lon,
+        "lat": lat,
+        "speed": max(0.0, speed),
+        "course": course % 360,
+        "timestamp": timestamp,
+        "at_dock": _as_bool(ship_info.get("at_dock", False)),
+        "matched_port_name": matched_port_name,
+    }
+
+
+def _is_normal_operation(ship):
+    if ship["at_dock"] or ship["matched_port_name"]:
+        return True
+    return classify_location(ship["lon"], ship["lat"])["state"] == "authorized"
+
+
+def _runtime_config():
+    config = get_wandering_config()
+    database_areas = [
+        {
+            "name": region.name,
+            "bounds": (
+                region.min_lon,
+                region.min_lat,
+                region.max_lon,
+                region.max_lat,
+            ),
+        }
+        for region in MonitorRegion.objects.filter(is_active=True)
+    ]
+    if database_areas:
+        config["monitored_areas"] = database_areas
+    return config
+
+
+def _empty_response(message="暂无有效AIS数据", skipped_count=0):
+    return JsonResponse(
+        {
+            "success": True,
+            "type": "异常徘徊",
+            "timestamp": None,
+            "count": 0,
+            "results": [],
+            "skipped_count": skipped_count,
+            "message": message,
+        }
+    )
+
+
+def _store_point(ship):
+    values = {
+        "name": ship["name"],
+        "longitude": ship["lon"],
+        "latitude": ship["lat"],
+        "course": ship["course"],
+        "speed": ship["speed"],
+    }
+    queryset = TrajectoryBuffer.objects.filter(
+        mmsi=ship["mmsi"],
+        timestamp=ship["timestamp"],
+    )
+    if queryset.update(**values) == 0:
+        TrajectoryBuffer.objects.create(
+            mmsi=ship["mmsi"],
+            timestamp=ship["timestamp"],
+            **values,
+        )
 
 
 @csrf_exempt
 def receive_realtime_point(request):
-    # 从cache中拿数据
-    ship_list = cache.get('latest_ais_data_raw', [])
-    timestamp_now = parse_datetime(ship_list[0].get('timestamp'))
+    ship_list = getattr(request, "ais_ship_list", None)
+    if ship_list is None:
+        ship_list = cache.get("latest_ais_data_raw", [])
+    if not isinstance(ship_list, list) or not ship_list:
+        return _empty_response()
 
-    if not ship_list:
-            return JsonResponse({'success': True, 'count': 0, 'results': []})
-
-    # 判定逻辑
-    results = []
-
-    # 2. 遍历输入数据，存入缓冲区并进行算法检测
+    config = _runtime_config()
+    ships = []
+    skipped_count = 0
     for ship_info in ship_list:
-        mmsi = ship_info.get('mmsi')
-        name = ship_info.get('name', '未知船只')
-        lon = ship_info.get('lon')
-        lat = ship_info.get('lat')
+        ship = _normalise_ship(ship_info)
+        if ship is None:
+            skipped_count += 1
+            continue
+        ships.append(ship)
+    if not ships:
+        return _empty_response(skipped_count=skipped_count)
 
-        if not mmsi:
+    results = []
+    for ship in ships:
+        mmsi = ship["mmsi"]
+        monitored_area = get_monitored_area(
+            ship["lat"],
+            ship["lon"],
+            config["monitored_areas"],
+        )
+        if monitored_area is None or _is_normal_operation(ship):
+            TrajectoryBuffer.objects.filter(mmsi=mmsi).delete()
             continue
 
-        # --- A. 实时点存入缓冲区 ---
-        models.TrajectoryBuffer.objects.create(
+        _store_point(ship)
+        window_start = ship["timestamp"] - timedelta(
+            minutes=config["analysis_window_minutes"]
+        )
+        recent_points = TrajectoryBuffer.objects.filter(
             mmsi=mmsi,
-            name=name,
-            longitude=lon,
-            latitude=lat,
-            course=ship_info.get('course', 0),
-            speed=ship_info.get('speed', 0),
-            timestamp=ship_info.get('timestamp', timezone.now())
+            timestamp__gte=window_start,
+            timestamp__lte=ship["timestamp"],
+        ).order_by("timestamp")
+        if recent_points.count() < config["min_points"]:
+            continue
+
+        analysis = run_loitering_analysis(recent_points, config)
+        if not analysis["is_abnormal"]:
+            continue
+
+        last_segment = analysis["abnormal_segments"][-1]
+        location = last_segment["location"]
+        details = (
+            f"检测为异常徘徊：船舶在{last_segment['area']}内"
+            f"{last_segment['duration_minutes']:.1f}分钟航行约"
+            f"{last_segment['path_distance_metres']:.0f}米，"
+            f"出现{last_segment['turn_count']}次明显转向，"
+            f"直线位移/轨迹长度比为"
+            f"{last_segment['displacement_ratio']:.2f}。"
+        )
+        results.append(
+            {
+                "mmsi": mmsi,
+                "location": [location["lon"], location["lat"]],
+                "name": ship["name"],
+                "duration_minutes": last_segment["duration_minutes"],
+                "turn_count": last_segment["turn_count"],
+                "path_distance_metres": last_segment[
+                    "path_distance_metres"
+                ],
+                "displacement_ratio": last_segment[
+                    "displacement_ratio"
+                ],
+                "area": last_segment["area"],
+                "details": details,
+                "detail": details,
+            }
         )
 
-        # --- B. 提取滑动窗口数据触发算法 ---
-        # 获取该船最近 30 分钟的所有轨迹点
-        check_window = timezone.now() - timedelta(minutes=30)
-        recent_points = models.TrajectoryBuffer.objects.filter(
-            mmsi=mmsi,
-            timestamp__gte=check_window
-        ).order_by('timestamp')
+    latest_timestamp = max(ship["timestamp"] for ship in ships)
+    cleanup_time = latest_timestamp - timedelta(
+        minutes=config["retention_window_minutes"]
+    )
+    TrajectoryBuffer.objects.filter(timestamp__lt=cleanup_time).delete()
 
-        # 只有当缓冲区点数达到算法要求的阈值时才分析（建议至少5-10个点）
-        if recent_points.count() >= 10:
-            # 调用你提供的 LoiteringBehaviour 逻辑封装的函数
-            analysis = run_loitering_analysis(recent_points)
-
-            if analysis.get('is_abnormal'):
-                # 算法识别出异常，按要求的格式加入结果集
-                results.append({
-                    'mmsi': mmsi,
-                    'location': [ship_info.get('lon'), ship_info.get('lat')],
-                    'name': name,
-                    'details': f"检测为异常徘徊船舶，判定逻辑待补充。"
-                })
-    
-    # 4. 清理过期数据 (清理过去 DURATION_THRESHOLD / 60 分钟的数据)
-    cleanup_time = timestamp_now - timedelta(minutes=ANALYSIS_WINDOW_MINUTES)
-    models.TrajectoryBuffer.objects.filter(timestamp__lt=cleanup_time).delete()  
-    
-    # 3. 按照要求的格式返回
-    return JsonResponse({
-        'success': True,
-        'type': '异常徘徊',
-        'timestamp': ship_list[0].get('timestamp'),
-        'count': len(results),
-        'results': results,
-        'message': '检测成功'
-    })
+    return JsonResponse(
+        {
+            "success": True,
+            "type": "异常徘徊",
+            "timestamp": latest_timestamp.isoformat(),
+            "count": len(results),
+            "results": results,
+            "skipped_count": skipped_count,
+            "rule": {
+                key: config[key]
+                for key in (
+                    "analysis_window_minutes",
+                    "min_points",
+                    "min_duration_minutes",
+                    "min_path_distance_metres",
+                    "min_turn_angle_degrees",
+                    "min_turn_count",
+                    "max_displacement_ratio",
+                    "max_gap_minutes",
+                    "min_area_point_ratio",
+                )
+            },
+            "message": "检测成功",
+        }
+    )

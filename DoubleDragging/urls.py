@@ -1,7 +1,12 @@
 # DoubleDragging/urls.py
 from django.urls import path
-from .views import detect_double_dragging
+from AISData.views import cached_detection_result
 
 urlpatterns = [
-    path('detectDoubleDragging/', detect_double_dragging, name='detect_double_dragging'),
+    path(
+        'detectDoubleDragging/',
+        cached_detection_result,
+        {'feature_id': 'detect-doubleDragging'},
+        name='detect_double_dragging',
+    ),
 ]

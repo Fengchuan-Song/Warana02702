@@ -1,6 +1,7 @@
 .idea/
 __pycache__
-Deviation/knowledge/
+Deviation/knowledge/*
+!Deviation/knowledge/QZHX_route_samples.npz
 Data/
 test.py
 redme.docx

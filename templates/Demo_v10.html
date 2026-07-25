@@ -21,8 +21,8 @@
             --color-alert-red: #E53E3E;
             
             /* 面板尺寸变量 */
-    		--panel-width: 20vw; /* 展开宽度 20% */
-            --toolbar-width: 45px; /* 左侧工具栏宽度 */
+            --panel-width: clamp(300px, 25vw, 380px);
+            --toolbar-width: 76px;
         }
 
         /* 基础重置与大屏字体优化 */
@@ -53,19 +53,21 @@
             height: 100%;
             background-color: var(--color-sidebar-dark);
             border-right: 1px solid rgba(0, 123, 255, 0.2);
-            padding-top: 20px;
+            padding-top: 12px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            z-index: 30; 
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 30;
         }
         
         .toolbar-icon {
-            width: 80%;
-            padding: 10px 0;
-            margin-bottom: 10px;
+            width: 90%;
+            padding: 7px 2px;
+            margin-bottom: 4px;
             text-align: center;
-            font-size: 1.5rem;
+            font-size: 1.2rem;
             cursor: pointer;
             border-radius: 6px;
             transition: background-color 0.2s, color 0.2s;
@@ -88,8 +90,9 @@
         
         .toolbar-icon .icon-label {
             display: block;
-            margin-top: 5px;
-            font-size: 1.1rem;
+            margin-top: 2px;
+            font-size: 0.78rem;
+            white-space: nowrap;
         }
 
         /* 2. 独立侧边面板容器 */
@@ -137,16 +140,39 @@
         }
 
         .ship-item {
-            padding: 10px 0; 
+            padding: 10px 8px;
             border-bottom: 1px dashed rgba(160, 174, 192, 0.1); 
-            transition: background-color 0.2s;
+            border-left: 3px solid transparent;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
             cursor: pointer;
             font-size: 0.95rem; 
         }
 
-        .ship-item:hover, .ship-item.active {
-            background-color: transparent; 
+        .ship-item:hover {
+            background-color: rgba(0, 123, 255, 0.12);
+            color: white;
+        }
+
+        .ship-item.active {
+            background-color: rgba(0, 123, 255, 0.28);
+            border-left-color: var(--color-primary);
             color: white; 
+            box-shadow: inset 0 0 12px rgba(0, 123, 255, 0.16);
+        }
+
+        .ship-item.active .ship-status-icon {
+            box-shadow: 0 0 0 2px white, 0 0 9px 3px var(--color-primary);
+        }
+
+        .ship-item.active.violation-selected {
+            background-color: rgba(229, 62, 62, 0.3);
+            border-left-color: var(--color-alert-red);
+            box-shadow: inset 0 0 12px rgba(229, 62, 62, 0.2);
+        }
+
+        .ship-item.active.violation-selected .ship-status-icon {
+            background-color: var(--color-alert-red) !important;
+            box-shadow: 0 0 0 2px white, 0 0 10px 4px var(--color-alert-red);
         }
         
         .ship-status-icon {
@@ -174,17 +200,176 @@
             display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px 0;
         }
         .tile-option {
-            text-align: center; border: 2px solid transparent; padding: 5px; cursor: pointer; transition: border-color 0.2s; background: rgba(26, 32, 53, 0.6); border-radius: 4px; position: relative;
+            width: 100%; text-align: center; border: 2px solid transparent; padding: 5px; cursor: pointer; transition: border-color 0.2s; background: rgba(26, 32, 53, 0.6); border-radius: 4px; position: relative; color: inherit; font: inherit;
         }
         .tile-option.active { border-color: var(--color-primary); }
-        .tile-option img {
-            width: 100%; height: 60px; object-fit: cover; display: block; margin-bottom: 5px; border-radius: 2px;
+        .tile-option:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+        .map-tile-preview {
+            width: 100%;
+            height: 60px;
+            display: block;
+            margin-bottom: 5px;
+            border-radius: 2px;
+            overflow: hidden;
+            position: relative;
+        }
+        .map-tile-preview.normal {
+            background:
+                linear-gradient(27deg, transparent 45%, rgba(255, 255, 255, 0.95) 46% 50%, transparent 51%),
+                linear-gradient(112deg, transparent 33%, rgba(255, 221, 115, 0.95) 34% 39%, transparent 40%),
+                linear-gradient(165deg, transparent 54%, rgba(255, 255, 255, 0.9) 55% 59%, transparent 60%),
+                #9fc89a;
+        }
+        .map-tile-preview.normal::after {
+            content: "";
+            position: absolute;
+            inset: 9px 13px;
+            border: 2px solid rgba(80, 140, 195, 0.85);
+            border-radius: 45% 55% 42% 58%;
+            transform: rotate(-8deg);
+        }
+        .map-tile-preview.terrain {
+            background:
+                radial-gradient(ellipse at 25% 72%, #59774a 0 18%, transparent 19%),
+                radial-gradient(ellipse at 62% 35%, #7d9362 0 25%, transparent 26%),
+                radial-gradient(ellipse at 86% 78%, #435f3e 0 21%, transparent 22%),
+                linear-gradient(135deg, #315646 0 48%, #247a9a 49% 100%);
+        }
+        .map-tile-preview.terrain::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: repeating-radial-gradient(
+                ellipse at 58% 42%,
+                transparent 0 7px,
+                rgba(230, 238, 207, 0.22) 8px 9px
+            );
         }
         .info-buttons-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 0;
         }
         .info-button {
-            padding: 8px 5px; border: none; border-radius: 4px; background-color: rgba(0, 123, 255, 0.4); color: white; cursor: pointer; font-size: 0.8rem; position: relative; white-space: nowrap; 
+            padding: 8px 5px;
+            border: 1px solid rgba(160, 174, 192, 0.45);
+            border-radius: 4px;
+            background-color: rgba(160, 174, 192, 0.16);
+            color: var(--color-text-light);
+            cursor: pointer;
+            font-size: 0.8rem;
+            position: relative;
+            white-space: nowrap;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+        }
+        .info-button:hover {
+            border-color: var(--color-primary);
+            color: white;
+        }
+        .info-button.active {
+            border-color: #63B3ED;
+            background-color: var(--color-primary);
+            color: white;
+            box-shadow: 0 0 9px rgba(0, 123, 255, 0.55);
+        }
+        .info-button:focus-visible {
+            outline: 2px solid white;
+            outline-offset: 2px;
+        }
+        .layer-status-message {
+            min-height: 18px;
+            margin-top: 4px;
+            color: var(--color-text-light);
+            font-size: 0.78rem;
+            line-height: 1.4;
+        }
+        .layer-status-message.error {
+            color: var(--color-alert-red);
+        }
+        .typhoon-center-marker {
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+            border-radius: 50%;
+            background: rgba(229, 62, 62, 0.9);
+            color: white;
+            box-shadow: 0 0 12px rgba(229, 62, 62, 0.85);
+            font-size: 20px;
+            line-height: 1;
+        }
+        .marine-data-marker {
+            min-width: 86px;
+            padding: 5px 7px;
+            border: 1px solid rgba(99, 179, 237, 0.95);
+            border-radius: 5px;
+            background: rgba(12, 30, 48, 0.9);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.48);
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 1.35;
+            white-space: nowrap;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .marine-data-marker:hover {
+            border-color: #90CDF4;
+            transform: translateY(-2px);
+        }
+        .marine-marker-wind {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: #90CDF4;
+            font-weight: 700;
+        }
+        .marine-direction-arrow {
+            display: inline-block;
+            color: #F6E05E;
+            font-size: 16px;
+            line-height: 1;
+            transform-origin: center;
+        }
+        .marine-marker-sea {
+            margin-top: 2px;
+            color: #BEE3F8;
+        }
+        .marine-weather-popup {
+            min-width: 230px;
+            padding: 12px 14px;
+            border: 1px solid #63B3ED;
+            border-radius: 6px;
+            background: rgba(12, 16, 27, 0.96);
+            color: var(--color-text-light);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.58);
+            font-size: 13px;
+            line-height: 1.55;
+            position: relative;
+        }
+        .marine-weather-popup h4 {
+            margin: 0 24px 7px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px dashed rgba(99, 179, 237, 0.45);
+            color: white;
+            font-size: 16px;
+        }
+        .marine-weather-popup p {
+            margin: 2px 0;
+        }
+        .marine-popup-close {
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            border: 0;
+            background: transparent;
+            color: var(--color-text-light);
+            cursor: pointer;
+            font-size: 20px;
+        }
+        .marine-popup-time {
+            margin-top: 7px !important;
+            color: #90CDF4;
+            font-size: 11px;
         }
         .badge {
             position: absolute; top: -5px; right: -5px; background-color: var(--color-alert-red); color: white; border-radius: 50%; padding: 2px 5px; font-size: 0.7rem; min-width: 20px; text-align: center; line-height: 1;
@@ -388,6 +573,132 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
         }
 
+        /* ==================== 电子围栏管理 ==================== */
+        .fence-form-label {
+            display: block;
+            margin: 10px 0 5px;
+            color: white;
+            font-size: 0.9rem;
+        }
+        .fence-form-control {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid rgba(0, 123, 255, 0.6);
+            border-radius: 4px;
+            background: #0C101B;
+            color: white;
+        }
+        textarea.fence-form-control {
+            min-height: 115px;
+            resize: vertical;
+            font-family: Consolas, monospace;
+            font-size: 0.82rem;
+        }
+        .fence-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin: 12px 0;
+        }
+        .fence-button {
+            padding: 7px 10px;
+            border: 1px solid var(--color-primary);
+            border-radius: 4px;
+            color: white;
+            background: rgba(0, 123, 255, 0.45);
+            cursor: pointer;
+        }
+        .fence-button.danger {
+            border-color: var(--color-alert-red);
+            background: rgba(229, 62, 62, 0.25);
+        }
+        .fence-status-button {
+            width: 100%;
+            margin-top: 10px;
+            border-color: var(--color-success-green);
+            background: rgba(72, 187, 120, 0.25);
+        }
+        .fence-status-button.inactive {
+            border-color: var(--color-text-light);
+            background: rgba(160, 174, 192, 0.12);
+        }
+        #fence-message {
+            min-height: 20px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        .fence-list-item {
+            margin-bottom: 8px;
+            padding: 9px;
+            border: 1px solid rgba(160, 174, 192, 0.2);
+            border-radius: 5px;
+            background: rgba(12, 16, 27, 0.65);
+        }
+        .fence-list-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: white;
+        }
+        .fence-list-meta {
+            margin: 5px 0;
+            font-size: 0.8rem;
+        }
+        .fence-list-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .fence-list-actions .fence-button {
+            padding: 4px 7px;
+            font-size: 0.78rem;
+        }
+        input[type="datetime-local"].fence-form-control {
+            color-scheme: dark;
+        }
+        .management-help {
+            margin: 5px 0 10px;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            color: var(--color-text-light);
+        }
+        .management-status {
+            min-height: 20px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        .management-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin: 8px 0 14px;
+        }
+        .management-tab {
+            padding: 8px;
+            border: 1px solid rgba(0, 123, 255, 0.55);
+            border-radius: 4px;
+            background: rgba(12, 16, 27, 0.65);
+            color: var(--color-text-light);
+            cursor: pointer;
+        }
+        .management-tab.active {
+            border-color: var(--color-primary);
+            background: rgba(0, 123, 255, 0.45);
+            color: white;
+        }
+        .management-section {
+            display: none;
+        }
+        .management-section.active {
+            display: block;
+        }
+        .zone-type-marker {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            margin-right: 5px;
+            border-radius: 50%;
+        }
+
     </style>
 </head>
 
@@ -403,6 +714,21 @@
             </div>
             <div id="btn-function" class="toolbar-icon" onclick="togglePanel('function-panel-container')">
                 🛠️<span class="icon-label">功能选项</span>
+            </div>
+            <div id="btn-fence" class="toolbar-icon" onclick="togglePanel('fence-panel-container')">
+                🌐<span class="icon-label">电子围栏</span>
+            </div>
+            <div id="btn-blacklist" class="toolbar-icon" onclick="togglePanel('blacklist-panel-container')">
+                ⛔<span class="icon-label">黑名单</span>
+            </div>
+            <div id="btn-berthing" class="toolbar-icon" onclick="togglePanel('berthing-panel-container')">
+                ⚓<span class="icon-label">搭靠许可</span>
+            </div>
+            <div id="btn-transfer" class="toolbar-icon" onclick="togglePanel('transfer-panel-container')">
+                🔄<span class="icon-label">接驳计划</span>
+            </div>
+            <div id="btn-smuggling" class="toolbar-icon" onclick="togglePanel('smuggling-panel-container')">
+                🛃<span class="icon-label">走私配置</span>
             </div>
         </div>
 
@@ -434,45 +760,27 @@
             <div class="option-section">
                 <h3>底图</h3>
                 <div class="map-tiles-grid">
-                    <div class="tile-option active">
-                        <img src="https://picsum.photos/80/60?random=1" alt="地图">
+                    <button id="base-map-normal" class="tile-option active" type="button" data-base-map="normal" aria-pressed="true">
+                        <span class="map-tile-preview normal" aria-hidden="true"></span>
                         <span>地图</span>
-                    </div>
-                    <div class="tile-option">
-                        <img src="https://picsum.photos/80/60?random=2" alt="卫星图">
+                    </button>
+                    <button id="base-map-terrain" class="tile-option" type="button" data-base-map="terrain" aria-pressed="false">
+                        <span class="map-tile-preview terrain" aria-hidden="true"></span>
                         <span>卫星图</span>
-                    </div>
-                    <div class="tile-option">
-                        <img src="https://picsum.photos/80/60?random=3" alt="全球海图">
-                        <span>全球海图</span>
-                        <div class="badge">更新</div>
-                    </div>
-                    <div class="tile-option">
-                        <img src="https://picsum.photos/80/60?random=4" alt="海陆图">
-                        <span>海陆图</span>
-                    </div>
-                    <div class="tile-option">
-                        <img src="https://picsum.photos/80/60?random=5" alt="AVCS Online">
-                        <span>AVCS Online</span>
-                    </div>
-                    <div class="tile-option">
-                        <img src="https://picsum.photos/80/60?random=6" alt="海图">
-                        <span>海图</span>
-                    </div>
+                    </button>
                 </div>
             </div>
 
             <div class="option-section">
                 <h3>信息/图层</h3>
                 <div class="info-buttons-grid">
-                    <button class="info-button">全部船舶</button>
-                    <button class="info-button">AIS航标</button>
-                    <button class="info-button">港口</button>
-                    <button class="info-button">海区预报</button>
-                    <button class="info-button">当前台风</button>
-                    <button class="info-button">台风预警线</button>
-                    <button class="info-button">历史台风</button>
+                    <button id="info-all-ships" class="info-button active" type="button" aria-pressed="true">全部船舶</button>
+                    <button id="info-meteorology" class="info-button" type="button" aria-pressed="false">气象</button>
+                    <button id="info-current-typhoon" class="info-button" type="button" aria-pressed="false">当前台风</button>
+                    <button id="info-typhoon-warning-lines" class="info-button" type="button" aria-pressed="false">台风预警线</button>
                 </div>
+                <div id="meteorology-layer-status" class="layer-status-message" role="status" aria-live="polite"></div>
+                <div id="typhoon-layer-status" class="layer-status-message" role="status" aria-live="polite"></div>
             </div>
 
         </div>
@@ -568,7 +876,7 @@
                 </div>
                 
                 <div class="option-item">
-                    <span>海上走私船舶检测</span>
+                    <span>海上走私风险识别</span>
                     <div style="display: flex; align-items: center;">
                         <span id="detect-smuggling-count" class="detail-trigger"></span>
                         <label class="switch-control">
@@ -780,6 +1088,305 @@
 
         </div>
 
+        <div id="fence-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>电子围栏管理</h2>
+            </div>
+            <input id="fence-id" type="hidden">
+
+            <label class="fence-form-label" for="fence-name">围栏名称</label>
+            <input id="fence-name" class="fence-form-control" type="text" maxlength="100" placeholder="例如：港池禁入区">
+
+            <label class="fence-form-label" for="fence-description">说明</label>
+            <input id="fence-description" class="fence-form-control" type="text" placeholder="选填">
+
+            <label class="fence-form-label" for="fence-crossing-mode">越界规则</label>
+            <select id="fence-crossing-mode" class="fence-form-control">
+                <option value="enter">禁止驶入</option>
+                <option value="exit">禁止驶出</option>
+                <option value="both">驶入、驶出均预警</option>
+            </select>
+
+            <label class="fence-form-label" for="fence-vertices">顶点坐标（每行：经度, 纬度）</label>
+            <textarea id="fence-vertices" class="fence-form-control" placeholder="113.680000, 22.395000&#10;113.690000, 22.395000&#10;113.690000, 22.405000"></textarea>
+
+            <button
+                id="fence-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >围栏状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="fence-save" class="fence-button" type="button">保存围栏</button>
+                <button id="fence-new" class="fence-button" type="button">新建/清空</button>
+                <button id="fence-draw" class="fence-button" type="button">地图点选</button>
+            </div>
+            <div id="fence-message"></div>
+
+            <div class="option-section">
+                <h3>已有围栏</h3>
+                <div id="fence-list">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="blacklist-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>船舶黑名单管理</h2>
+            </div>
+            <input id="blacklist-id" type="hidden">
+
+            <label class="fence-form-label" for="blacklist-mmsi">MMSI（必填）</label>
+            <input id="blacklist-mmsi" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="9位数字">
+
+            <label class="fence-form-label" for="blacklist-name">船舶名称</label>
+            <input id="blacklist-name" class="fence-form-control" type="text" maxlength="32" placeholder="选填">
+
+            <label class="fence-form-label" for="blacklist-type">船舶类型</label>
+            <input id="blacklist-type" class="fence-form-control" type="text" maxlength="32" placeholder="例如：货船">
+
+            <label class="fence-form-label" for="blacklist-length">船长（米）</label>
+            <input id="blacklist-length" class="fence-form-control" type="number" min="0.01" step="0.01" placeholder="选填">
+
+            <label class="fence-form-label" for="blacklist-width">船宽（米）</label>
+            <input id="blacklist-width" class="fence-form-control" type="number" min="0.01" step="0.01" placeholder="选填">
+
+            <label class="fence-form-label" for="blacklist-reason">列入原因</label>
+            <textarea id="blacklist-reason" class="fence-form-control" maxlength="1000" placeholder="选填"></textarea>
+
+            <button
+                id="blacklist-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >名单状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="blacklist-save" class="fence-button" type="button">保存</button>
+                <button id="blacklist-new" class="fence-button" type="button">新建/清空</button>
+            </div>
+            <div id="blacklist-message"></div>
+
+            <div class="option-section">
+                <h3>已有黑名单</h3>
+                <input id="blacklist-search" class="fence-form-control" type="search" placeholder="搜索 MMSI、船名、类型或原因">
+                <div id="blacklist-list" style="margin-top: 10px;">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="berthing-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>非法搭靠许可管理</h2>
+            </div>
+            <p class="management-help">
+                维护中国籍船舶搭靠外籍船舶的有效许可。有效期留空表示长期有效。
+            </p>
+            <input id="berthing-permit-id" type="hidden">
+
+            <label class="fence-form-label" for="berthing-chinese-mmsi">中国籍船舶 MMSI（必填）</label>
+            <input id="berthing-chinese-mmsi" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="412/413/414 开头的9位MMSI">
+
+            <label class="fence-form-label" for="berthing-foreign-mmsi">外籍船舶 MMSI（必填）</label>
+            <input id="berthing-foreign-mmsi" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="非中国MID的9位船舶MMSI">
+
+            <label class="fence-form-label" for="berthing-permit-number">许可编号</label>
+            <input id="berthing-permit-number" class="fence-form-control" type="text" maxlength="64" placeholder="例如：搭靠许可〔2026〕001号">
+
+            <label class="fence-form-label" for="berthing-valid-from">有效期开始</label>
+            <input id="berthing-valid-from" class="fence-form-control" type="datetime-local" step="1">
+
+            <label class="fence-form-label" for="berthing-valid-until">有效期结束</label>
+            <input id="berthing-valid-until" class="fence-form-control" type="datetime-local" step="1">
+
+            <label class="fence-form-label" for="berthing-notes">备注</label>
+            <textarea id="berthing-notes" class="fence-form-control" maxlength="1000" placeholder="选填"></textarea>
+
+            <button
+                id="berthing-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >许可状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="berthing-save" class="fence-button" type="button">保存许可</button>
+                <button id="berthing-new" class="fence-button" type="button">新建/清空</button>
+            </div>
+            <div id="berthing-message" class="management-status"></div>
+
+            <div class="option-section">
+                <h3>已有搭靠许可</h3>
+                <input id="berthing-search" class="fence-form-control" type="search" placeholder="搜索 MMSI、许可编号或备注">
+                <div id="berthing-list" style="margin-top: 10px;">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="transfer-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>异常接驳作业计划</h2>
+            </div>
+            <p class="management-help">
+                录入主管机关批准的接驳双方、作业时段和最大规定航速。未登记计划的持续接驳会触发预警。
+            </p>
+            <input id="transfer-plan-id" type="hidden">
+
+            <label class="fence-form-label" for="transfer-vessel-a">船舶 A MMSI（必填）</label>
+            <input id="transfer-vessel-a" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="9位船舶MMSI">
+
+            <label class="fence-form-label" for="transfer-vessel-b">船舶 B MMSI（必填）</label>
+            <input id="transfer-vessel-b" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="9位船舶MMSI">
+
+            <label class="fence-form-label" for="transfer-operation-name">作业名称</label>
+            <input id="transfer-operation-name" class="fence-form-control" type="text" maxlength="100" placeholder="例如：原油过驳作业">
+
+            <label class="fence-form-label" for="transfer-approval-number">批准/通告编号</label>
+            <input id="transfer-approval-number" class="fence-form-control" type="text" maxlength="64" placeholder="例如：渝航通〔2026〕0049号">
+
+            <label class="fence-form-label" for="transfer-starts-at">批准开始时间（必填）</label>
+            <input id="transfer-starts-at" class="fence-form-control" type="datetime-local" step="1">
+
+            <label class="fence-form-label" for="transfer-ends-at">批准结束时间（必填）</label>
+            <input id="transfer-ends-at" class="fence-form-control" type="datetime-local" step="1">
+
+            <label class="fence-form-label" for="transfer-max-speed">最大规定航速（节，必填）</label>
+            <input id="transfer-max-speed" class="fence-form-control" type="number" min="0" step="0.1" placeholder="按批准文件填写">
+
+            <label class="fence-form-label" for="transfer-notes">备注</label>
+            <textarea id="transfer-notes" class="fence-form-control" maxlength="1000" placeholder="选填"></textarea>
+
+            <button
+                id="transfer-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >计划状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="transfer-save" class="fence-button" type="button">保存计划</button>
+                <button id="transfer-new" class="fence-button" type="button">新建/清空</button>
+            </div>
+            <div id="transfer-message" class="management-status"></div>
+
+            <div class="option-section">
+                <h3>已有接驳计划</h3>
+                <input id="transfer-search" class="fence-form-control" type="search" placeholder="搜索 MMSI、作业名称、批准编号或备注">
+                <div id="transfer-list" style="margin-top: 10px;">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="smuggling-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>海上走私研判配置</h2>
+            </div>
+            <p class="management-help">
+                维护香港起航区、合法口岸、广东非设关靠泊区及已批准航次。配置保存后直接参与实时研判。
+            </p>
+            <div class="management-tabs" role="tablist" aria-label="走私研判配置">
+                <button id="smuggling-zone-tab" class="management-tab active" type="button" data-tab="zone" aria-selected="true">区域管理</button>
+                <button id="smuggling-permit-tab" class="management-tab" type="button" data-tab="permit" aria-selected="false">航次许可</button>
+            </div>
+
+            <section id="smuggling-zone-section" class="management-section active">
+                <input id="smuggling-zone-id" type="hidden">
+
+                <label class="fence-form-label" for="smuggling-zone-name">区域名称（必填）</label>
+                <input id="smuggling-zone-name" class="fence-form-control" type="text" maxlength="100" placeholder="例如：香港东部起航区">
+
+                <label class="fence-form-label" for="smuggling-zone-type">区域类型（必填）</label>
+                <select id="smuggling-zone-type" class="fence-form-control">
+                    <option value="hong_kong_origin">香港起航区</option>
+                    <option value="customs_port">合法口岸/海关监管区</option>
+                    <option value="non_customs_landing">广东非设关靠泊区</option>
+                </select>
+
+                <label class="fence-form-label" for="smuggling-zone-buffer">外围预警距离（米）</label>
+                <input id="smuggling-zone-buffer" class="fence-form-control" type="number" min="0" max="100000" step="100" value="0">
+
+                <label class="fence-form-label" for="smuggling-zone-reference">依据/批准文件</label>
+                <input id="smuggling-zone-reference" class="fence-form-control" type="text" maxlength="255" placeholder="选填">
+
+                <label class="fence-form-label" for="smuggling-zone-vertices">顶点坐标（每行：经度, 纬度）</label>
+                <textarea id="smuggling-zone-vertices" class="fence-form-control" placeholder="可手工输入，也可点击“地图绘制”"></textarea>
+
+                <label class="fence-form-label" for="smuggling-zone-notes">备注</label>
+                <textarea id="smuggling-zone-notes" class="fence-form-control" maxlength="2000" placeholder="选填"></textarea>
+
+                <button
+                    id="smuggling-zone-active"
+                    class="fence-button fence-status-button"
+                    type="button"
+                    data-active="true"
+                    aria-pressed="true"
+                >区域状态：已启用（点击停用）</button>
+
+                <div class="fence-actions">
+                    <button id="smuggling-zone-save" class="fence-button" type="button">保存区域</button>
+                    <button id="smuggling-zone-new" class="fence-button" type="button">新建/清空</button>
+                    <button id="smuggling-zone-draw" class="fence-button" type="button">地图绘制</button>
+                </div>
+                <div id="smuggling-zone-message" class="management-status"></div>
+
+                <div class="option-section">
+                    <h3>已有研判区域</h3>
+                    <input id="smuggling-zone-search" class="fence-form-control" type="search" placeholder="搜索名称、类型、文件或备注">
+                    <div id="smuggling-zone-list" style="margin-top: 10px;">正在加载……</div>
+                </div>
+            </section>
+
+            <section id="smuggling-permit-section" class="management-section">
+                <input id="smuggling-permit-id" type="hidden">
+
+                <label class="fence-form-label" for="smuggling-permit-mmsi">船舶 MMSI（必填）</label>
+                <input id="smuggling-permit-mmsi" class="fence-form-control" type="text" maxlength="9" inputmode="numeric" placeholder="9位数字">
+
+                <label class="fence-form-label" for="smuggling-permit-number">许可/报告编号（必填）</label>
+                <input id="smuggling-permit-number" class="fence-form-control" type="text" maxlength="64" placeholder="例如：航次报告〔2026〕001号">
+
+                <label class="fence-form-label" for="smuggling-permit-origin">许可起航区</label>
+                <select id="smuggling-permit-origin" class="fence-form-control">
+                    <option value="">不限香港起航区</option>
+                </select>
+
+                <label class="fence-form-label" for="smuggling-permit-destination">许可目的区域</label>
+                <select id="smuggling-permit-destination" class="fence-form-control">
+                    <option value="">不限非设关靠泊区</option>
+                </select>
+
+                <label class="fence-form-label" for="smuggling-permit-valid-from">有效期开始（必填）</label>
+                <input id="smuggling-permit-valid-from" class="fence-form-control" type="datetime-local" step="1">
+
+                <label class="fence-form-label" for="smuggling-permit-valid-until">有效期结束（必填）</label>
+                <input id="smuggling-permit-valid-until" class="fence-form-control" type="datetime-local" step="1">
+
+                <label class="fence-form-label" for="smuggling-permit-notes">备注</label>
+                <textarea id="smuggling-permit-notes" class="fence-form-control" maxlength="2000" placeholder="选填"></textarea>
+
+                <button
+                    id="smuggling-permit-active"
+                    class="fence-button fence-status-button"
+                    type="button"
+                    data-active="true"
+                    aria-pressed="true"
+                >许可状态：已启用（点击停用）</button>
+
+                <div class="fence-actions">
+                    <button id="smuggling-permit-save" class="fence-button" type="button">保存许可</button>
+                    <button id="smuggling-permit-new" class="fence-button" type="button">新建/清空</button>
+                </div>
+                <div id="smuggling-permit-message" class="management-status"></div>
+
+                <div class="option-section">
+                    <h3>已有航次许可</h3>
+                    <input id="smuggling-permit-search" class="fence-form-control" type="search" placeholder="搜索 MMSI、许可编号、区域或备注">
+                    <div id="smuggling-permit-list" style="margin-top: 10px;">正在加载……</div>
+                </div>
+            </section>
+        </div>
+
 
         <div id="map-container">
             <div id="amap-instance" style="width: 100%; height: 100%;"></div>
@@ -793,12 +1400,6 @@
                     <div class="card-label">异常/告警</div>
                     <div id="alert-ships" class="card-value">5</div>
                 </div>
-            </div>
-
-            <div id="map-tools" class="overlay-card" style="position: absolute; top: 20px; right: 20px; display: flex; gap: 10px;">
-                <button class="tool-button" id="btn-draw-fence" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🌐 绘制围栏</button>
-                <button class="tool-button" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🔥 热力图</button>
-                <button class="tool-button" style="background: rgba(0, 123, 255, 0.5); border: none; padding: 5px 10px; border-radius: 4px; color: white; cursor: pointer;">🛰️ 卫星图</button>
             </div>
 
             <div id="playback-controls" class="overlay-card" style="position: absolute; display: none; bottom: 20px; left: 50%; transform: translateX(-50%);">
@@ -826,27 +1427,60 @@
         const CRITICAL_ZOOM_LEVEL = 11;
         let shipInfoWindow = null; 
         let detectionResults = {};
+        let latestDetectionPayloads = {};
+        let electronicFences = new Map();
+        let blacklistEntries = new Map();
+        let berthingPermits = new Map();
+        let transferOperationPlans = new Map();
+        let smugglingZones = new Map();
+        let smugglingVoyagePermits = new Map();
+        let fencePolygons = new Map();
+        let smugglingZonePolygons = new Map();
+        let smugglingZoneMouseTool = null;
+        let smugglingZoneDraftPolygon = null;
+        let currentTyphoonOverlays = [];
+        let typhoonWarningLineOverlays = [];
+        let currentTyphoonLayerVisible = false;
+        let typhoonWarningLinesVisible = false;
+        let currentTyphoonLoadPromise = null;
+        let typhoonRefreshTimer = null;
+        let marineWeatherOverlays = [];
+        let marineWeatherLayerVisible = false;
+        let marineWeatherLoadPromise = null;
+        let marineWeatherRefreshTimer = null;
+        let marineWeatherInfoWindow = null;
 
         // 【新增】WebSocket 实例
         let ws = null;
 
-        // 统一计时器存储空间
-        const activeTimers = {};
-
         // 船舶目标显示变量
         let shipMarkersMap = new Map();
         let shipLastSeenMap = new Map();
+        let areAllShipsVisible = true;
+        let functionSelectedShipMmsis = new Set();
         const EXPIRATION_TIME = 60000;      // 目标消失阈值：60s
 
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
         const ICON_CIRCLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 100 100"><circle cx="50" cy="50" r="20" style="fill:%2348BB78;"/></svg>';
-        // ✅ 新增：选中状态的绿色三角形 (颜色改为绿色)
-        const ICON_TRIANGLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%2348BB78;stroke:black;stroke-width:5"/></svg>';
+        // 选中状态使用更大、带白色描边的图标，缩放前后都能清楚辨认
+        const ICON_TRIANGLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 100 100"><polygon points="50,8 92,92 8,92" style="fill:%2348BB78;stroke:white;stroke-width:8"/></svg>';
+        const ICON_CIRCLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100"><circle cx="50" cy="50" r="32" style="fill:%2348BB78;stroke:white;stroke-width:10"/></svg>';
+        const ICON_TRIANGLE_VIOLATION_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 100 100"><polygon points="50,8 92,92 8,92" style="fill:%23E53E3E;stroke:white;stroke-width:8"/></svg>';
+        const ICON_CIRCLE_VIOLATION_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100"><circle cx="50" cy="50" r="32" style="fill:%23E53E3E;stroke:white;stroke-width:10"/></svg>';
 
         // 记录当前选中的 MMSI
         let selectedShipMmsi = null;
+        let selectedShipHighlightType = 'normal';
 
+        function normalizeAisName(value) {
+            const name = String(value ?? '').trim();
+            const missingNames = new Set([
+                '', '-', '--', '<na>', 'n/a', 'na', 'nan', 'none', 'null',
+                'unknown', 'unknown target', '未命名', '未知', '未知船名', '未知船舶'
+            ]);
+            return missingNames.has(name.toLowerCase()) ? '未知目标' : name;
+        }
 
         // ----------------- 【新增核心函数】WebSocket 初始化 -----------------
         function initWebSocket() {
@@ -871,7 +1505,7 @@
                     // 假设 rawData 是一个船舶对象数组，且包含 mmsi, name, lon, lat, course, speed 等字段
                     shipData = rawData.map(ship => ({
                         id: ship.mmsi, 
-                        name: ship.name,
+                        name: normalizeAisName(ship.name),
                         mmsi: ship.mmsi,
                         lon: ship.lon,
                         lat: ship.lat,
@@ -892,6 +1526,11 @@
                     
                     document.getElementById('total-ships').textContent = totalShips;
                     document.getElementById('alert-ships').textContent = alertCount;
+                } else if (message.type === 'detection_update') {
+                    const backendResults = message.data || {};
+                    Object.entries(backendResults).forEach(([featureId, payload]) => {
+                        applyDetectionPayload(featureId, payload);
+                    });
                 }
             };
             console.log("afterafter");
@@ -1035,7 +1674,7 @@
                 case 'fusion-sar-ais': return  '星基SAR/AIS数据融合';
                 case 'detect-ais-off': return '关闭AIS船舶检测';
                 case 'detect-spoofing': return '身份伪造船舶检测';
-                case 'detect-smuggling': return '海上走私船舶检测';
+                case 'detect-smuggling': return '海上走私风险识别';
                 case 'detect-highSpeedBoat': return '高速快艇检测';
                 case 'detect-overload': return '超载船舶检测';
                 case 'detect-illegalFishing': return '非法捕捞船舶检测';
@@ -1062,117 +1701,123 @@
             return featureId.includes('fusion') ? '融合目标' : '违法目标';
         }
 
-        // 获取违法事件预警模型的URL
-        function getDetectApiUrlByFeature(featureId) {
-            switch (featureId) {
-                // 1、异常停泊
-                case 'detect-abnormalStaying':
-                    return '/AbnormalParking/detectAbnormalParking/';
-                // 2、异常接驳
-                // case 'detect-abnormalTransfer':
-                    // return '/AbnormalTransfer/detectAbnormalTransfer/';
-                // 3、异常徘徊
-                case 'detect-abnormalWandering':
-                    return '/AbnormalWandering/detectAbnormalWandering/';
-                // 4、黑名单预警
-                case 'detect-blackList':
-                    return '/BlackList/detectBlackList/';
-                // 5、船舶碰撞
-                // case 'detect-collision':
-                //     return '/Collision/detectCollision/';
-                // 6、航道偏离
-                case 'detect-deviation':
-                    return '/Deviation/detectDeviation/';
-                // 7、双拖
-                case 'detect-doubleDragging':
-                    return '/DoubleDragging/detectDoubleDragging/';
-                // 8、海上围栏越界
-                case 'detect-CrossingBoundary':
-                    return '/CrossingBoundary/detectCrossingBoundary/';
-                // 9、身份伪造
-                // case 'detect-spoofing':
-                //     return '/Forgery/detectForgery/';
-                // 10、高速快艇
-                case 'detect-highSpeedBoat':
-                    return '/HighSpeedBoat/detectHighSpeedBoat/';
-                // 11、非法抛锚
-                // case 'detect-illegalAnchored':
-                //     return '/IllegalAnchored/detectIllegalAnchored/';
-                // 12、非法搭靠
-                // case 'detect-illegalBerthing':
-                //     return '/IllegalBerthing/detectIllegalBerthing/';
-                // 13、非法养殖
-                // case 'detect-illegalFarming':
-                //     return '/IllegalFarming/detectIllegalFarming/';
-                // 14、非法捕捞
-                // case 'detect-illegalFishing':
-                //     return '/IllegalFishing/detectIllegalFishing/';
-                // 15、非法排污
-                // case 'detect-illegalPollutionDis':
-                //     return '/IllegalpollutionDis/detectIllegalpollutionDis/';
-                // 16、盗采海砂
-                // case 'detect-illegalSandMining':
-                //     return '/IllegalSandMining/detectIllegalSandMining/';
-                // 17、非法驻留
-                case 'detect-illegalStaying':
-                    return '/IllegalStaying/detectIllegalStaying/';
-                // 18、低速预警
-                case 'detect-lowSpeedBoat':
-                    return '/LowSpeed/detectLowSpeed/';
-                // 19、船舶超载
-                // case 'detect-overload':
-                //     return '/Overload/detectOverload/';
-                // 20、走私
-                // case 'detect-smuggling':
-                //     return '/Smuggling/detectSmuggling/';
-                default:
-                    return null;
+        function getTargetMmsis(target) {
+            const candidates = (
+                Array.isArray(target.pair_mmsi) &&
+                target.pair_mmsi.filter(normalizeMmsi).length >= 2
+            )
+                ? target.pair_mmsi
+                : [target.mmsi, target.other_mmsi];
+
+            return [...new Set(
+                candidates
+                    .map(normalizeMmsi)
+                    .filter(Boolean)
+            )];
+        }
+
+        function buildTargetMmsiHtml(target) {
+            const mmsis = getTargetMmsis(target);
+            return mmsis.map((mmsi, index) => {
+                const label = mmsis.length > 1 ? `MMSI ${index + 1}` : 'MMSI';
+                return `<span class="clickable-mmsi" onclick="locateShipByMMSI('${mmsi}', true)">${label}: ${mmsi}</span>`;
+            }).join('<br>');
+        }
+
+        function applyDetectionPayload(featureId, payload) {
+            latestDetectionPayloads[featureId] = payload;
+            detectionResults[featureId] = payload.results || [];
+
+            const checkbox = document.querySelector(
+                `input[name="${featureId}"]`
+            );
+            const detailTrigger = document.getElementById(
+                featureId + '-count'
+            );
+            if (!checkbox || !checkbox.checked || !detailTrigger) {
+                return;
+            }
+
+            if (!payload.computed_at) {
+                detailTrigger.textContent =
+                    getFeatureLabel(featureId) + ': 等待后端检测...';
+                detailTrigger.style.display = 'inline-block';
+                return;
+            }
+
+            const title = getFeatureTitle(featureId);
+            if (payload.success) {
+                if (payload.configured === false) {
+                    detailTrigger.textContent =
+                        getFeatureLabel(featureId) + ': 未配置';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () =>
+                        openDetailModal(featureId, title, 0);
+                    return;
+                }
+                const alertCount = payload.count || 0;
+                detailTrigger.textContent =
+                    getFeatureLabel(featureId) + ': ' + alertCount + '个';
+                detailTrigger.style.display = 'inline-block';
+                detailTrigger.onclick = () =>
+                    openDetailModal(featureId, title, alertCount);
+            } else {
+                console.error('后端预警检测失败:', payload.message);
+                detailTrigger.textContent =
+                    getFeatureLabel(featureId) + ': 失败';
+                detailTrigger.style.display = 'inline-block';
             }
         }
 
+        function loadCachedDetectionPayload(featureId) {
+            const resultUrl =
+                `/AISData/detection-results/${encodeURIComponent(featureId)}/`;
+            fetch(resultUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(payload => {
+                    applyDetectionPayload(featureId, payload);
+                })
+                .catch(error => {
+                    console.warn(
+                        `暂未取得 ${featureId} 的后端缓存结果:`,
+                        error
+                    );
+                });
+        }
+
         function handleToggleChange(checkbox, featureId) {
+            // 融合模型开关只影响船舶信息弹窗，不属于违法检测任务。
+            if (!featureId.startsWith('detect-')) {
+                return;
+            }
+
             const detailTrigger = document.getElementById(featureId + '-count');
+            if (!detailTrigger) {
+                return;
+            }
             
             if (checkbox.checked) {
-                // 开启首先清除历史计时器
-                if (activeTimers[featureId]){
-                    clearInterval(activeTimers[featureId]);
+                const latestPayload = latestDetectionPayloads[featureId];
+                if (latestPayload) {
+                    applyDetectionPayload(featureId, latestPayload);
+                } else {
+                    detailTrigger.textContent =
+                        getFeatureLabel(featureId) + ': 等待后端检测...';
+                    detailTrigger.style.display = 'inline-block';
+                    detailTrigger.onclick = () =>
+                        openDetailModal(
+                            featureId,
+                            getFeatureTitle(featureId),
+                            0
+                        );
+                    loadCachedDetectionPayload(featureId);
                 }
-
-                detailTrigger.textContent = getFeatureLabel(featureId) + ': 等待数据...';
-                detailTrigger.style.display = 'inline-block';
-                detailTrigger.onclick = () => openDetailModal(featureId, getFeatureTitle(featureId), 0); // 暂时设置计数为 0
-                
-                const detectAPIUrl = getDetectApiUrlByFeature(featureId);
-                activeTimers[featureId] = setInterval(() => {
-                    fetch(detectAPIUrl)
-                        .then(response => response.json())
-                        .then(data => {
-                            const detailTrigger = document.getElementById(featureId + '-count');
-                            const title = getFeatureTitle(featureId);
-
-                            if (data.success) {
-                                const alertCount = data.count;
-
-                                // 存储结果
-                                detectionResults[featureId] = data.results;
-
-                                // 更新前端计数显示
-                                detailTrigger.textContent = getFeatureLabel(featureId) + ': ' + alertCount + '个';
-                                detailTrigger.style.display = 'inline-block';
-                                detailTrigger.onclick = () => openDetailModal(featureId, title, alertCount);
-                            } else {
-                                console.error('预警检测服务调用失败:', data.message);
-                                detailTrigger.textContent = getFeatureLabel(featureId) + ': 失败';
-                            }
-                        });
-                }, 100000);
             } else {
-                // 关闭清除计时器
-                if (activeTimers[featureId]) {
-                    clearInterval(activeTimers[featureId]);
-                    delete activeTimers[featureId]; // 清除引用
-                }
                 detailTrigger.style.display = 'none';
                 delete detectionResults[featureId]; 
             }
@@ -1214,7 +1859,7 @@
 
             let detailHtml = '<ul class="modal-details-list">';
             targets.forEach((target, index) => {                
-                const mmsiHtml = `<span class="clickable-mmsi" onclick="locateShipByMMSI('${target.mmsi}')">MMSI: ${target.mmsi}</span>`;
+                const mmsiHtml = buildTargetMmsiHtml(target);
 
                 detailHtml += `<li>
                                     <span style="width: 80px;">${target.name}</span> 
@@ -1245,47 +1890,174 @@
             return 0;
         }
      	
-     	// 统一的船舶居中定位函数 (替代 map.setCenter)
+        // 统一的船舶快速定位函数
         function centerShipWithOffsetCorrection(ship, zoomLevel, callback) {
             if (!map || !ship) return;
             
             const targetLonLat = [ship.lon, ship.lat];
-            
-            map.setCenter(targetLonLat);
-            map.setZoom(zoomLevel); 
-            
-            const correctionDelay = 50; 
-            setTimeout(() => {
-                const panelWidth = getPanelWidthInPixels();
-                if (panelWidth > 0) {
-                    const xOffset = panelWidth / 2;
-                    map.panBy(-xOffset, 0); 
-                    console.log(`Map corrected by ${-xOffset}px.`);
-                }
-                
-                if (callback && typeof callback === 'function') {
-                    setTimeout(callback, 100); 
-                }
-            }, correctionDelay); 
+
+            // 一次完成缩放和定位，并关闭动画，避免两次地图过渡叠加。
+            map.setZoomAndCenter(zoomLevel, targetLonLat, true, 0);
+
+            const panelWidth = getPanelWidthInPixels();
+            if (panelWidth > 0) {
+                // 侧栏覆盖地图时立即修正中心点，不再等待 pan 动画。
+                map.panBy(-(panelWidth / 2), 0, 0);
+            }
+
+            if (callback && typeof callback === 'function') {
+                callback();
+            }
         }
         
-     	// ----------------- 新增：定位船舶 JS 逻辑 -----------------
-        function locateShipByMMSI(mmsi) {
-            const targetShip = shipData.find(ship => ship.mmsi === mmsi);
+        function normalizeMmsi(value) {
+            return String(value ?? '').trim();
+        }
+
+        function findDetectionTargetByMMSI(mmsi) {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            for (const targets of Object.values(detectionResults)) {
+                if (!Array.isArray(targets)) continue;
+
+                const target = targets.find(
+                    item => getTargetMmsis(item).includes(normalizedMmsi)
+                );
+                if (target) return target;
+            }
+            return null;
+        }
+
+        function getDetectionShipByMMSI(mmsi, detectionTarget = null) {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            const target =
+                detectionTarget ||
+                findDetectionTargetByMMSI(normalizedMmsi);
+            if (!target) return null;
+
+            const targetMmsis = getTargetMmsis(target);
+            const shipIndex = targetMmsis.indexOf(normalizedMmsi);
+            const pairLocations = Array.isArray(target.ship_locations)
+                ? target.ship_locations
+                : [];
+            const location = (
+                shipIndex >= 0 &&
+                Array.isArray(pairLocations[shipIndex])
+            )
+                ? pairLocations[shipIndex]
+                : (
+                    Array.isArray(target.location)
+                        ? target.location
+                        : [target.lon, target.lat]
+                );
+            const lon = Number(location[0]);
+            const lat = Number(location[1]);
+            if (!Number.isFinite(lon) || !Number.isFinite(lat) ||
+                lon < -180 || lon > 180 || lat < -90 || lat > 90) {
+                return null;
+            }
+
+            const targetNames = String(target.name || '')
+                .split('/')
+                .map(name => name.trim());
+            const speed = Number(target.speed);
+            const course = Number(target.course ?? target.heading);
+            return {
+                id: normalizedMmsi,
+                mmsi: normalizedMmsi,
+                name: normalizeAisName(
+                    targetNames[shipIndex] || target.name
+                ),
+                lon,
+                lat,
+                speed: Number.isFinite(speed) ? speed : 0,
+                course: Number.isFinite(course) ? course : 0,
+                heading: Number.isFinite(course) ? course : 0,
+                status: Number.isFinite(speed) && speed >= 0.5
+                    ? 'sailing'
+                    : 'anchor',
+            };
+        }
+
+        function resolveShipByMMSI(mmsi, detectionTarget = null) {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            const existingMarker = shipMarkersMap.get(normalizedMmsi);
+            return (
+                shipData.find(
+                    ship => normalizeMmsi(ship.mmsi) === normalizedMmsi
+                ) ||
+                (existingMarker ? existingMarker.getExtData() : null) ||
+                getDetectionShipByMMSI(normalizedMmsi, detectionTarget)
+            );
+        }
+
+        function ensureLocatedShipMarker(ship) {
+            const shipMmsi = normalizeMmsi(ship.mmsi);
+            let marker = shipMarkersMap.get(shipMmsi);
+            const currentZoom = map.getZoom();
+            const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+
+            if (marker) {
+                marker.setPosition([ship.lon, ship.lat]);
+                marker.setAngle(isTriangleMode ? ship.heading : 0);
+                marker.setExtData(ship);
+            } else {
+                const markerSize = isTriangleMode ? 30 : 15;
+                marker = new AMap.Marker({
+                    position: [ship.lon, ship.lat],
+                    extData: ship,
+                    map,
+                    angle: isTriangleMode ? ship.heading : 0,
+                    icon: new AMap.Icon({
+                        size: new AMap.Size(markerSize, markerSize),
+                        image: isTriangleMode
+                            ? ICON_TRIANGLE_URL
+                            : ICON_CIRCLE_URL,
+                        imageSize: new AMap.Size(markerSize, markerSize),
+                    }),
+                });
+                marker.on('click', () => {
+                    const currentShip = marker.getExtData();
+                    selectShip(currentShip.mmsi);
+                    document.getElementById('playback-controls').style.display = 'flex';
+                    openShipPopup(currentShip);
+                });
+                shipMarkersMap.set(shipMmsi, marker);
+            }
+
+            shipLastSeenMap.set(shipMmsi, Date.now());
+            return marker;
+        }
+
+        // ----------------- 新增：定位船舶 JS 逻辑 -----------------
+        function locateShipByMMSI(mmsi, fromViolationDetection = false) {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            const detectionTarget = fromViolationDetection
+                ? findDetectionTargetByMMSI(normalizedMmsi)
+                : null;
+            const relatedMmsis = detectionTarget
+                ? getTargetMmsis(detectionTarget)
+                : [normalizedMmsi];
+            const relatedShips = relatedMmsis
+                .map(relatedMmsi =>
+                    resolveShipByMMSI(relatedMmsi, detectionTarget)
+                )
+                .filter(Boolean);
+            const targetShip = relatedShips.find(
+                ship => normalizeMmsi(ship.mmsi) === normalizedMmsi
+            );
 
             if (targetShip) {
                 closeDetailModal(); 
                 togglePanel('list-panel-container'); 
-                
-                // 模拟列表高亮并显示播放控件
-                const shipListItems = document.querySelectorAll('#ship-list .ship-item');
-                shipListItems.forEach(item => {
-                    item.classList.remove('active');
-                    // 注意：这里我们应该改用 data-mmsi 属性来查找，但为了兼容原 HTML 结构，先用 innerHTML
-                    if (item.innerHTML.includes(mmsi)) {
-                         item.classList.add('active');
-                    }
-                });
+
+                // “全部船舶”关闭时，临时显示违法事件涉及的全部船舶。
+                if (!areAllShipsVisible && fromViolationDetection) {
+                    functionSelectedShipMmsis = new Set(relatedMmsis);
+                }
+
+                relatedShips.forEach(ensureLocatedShipMarker);
+                syncShipMarkerVisibility();
+                selectShip(targetShip.mmsi, fromViolationDetection ? 'violation' : 'normal');
                 document.getElementById('playback-controls').style.display = 'flex';
                 
                 // 定位并打开信息窗口
@@ -1293,10 +2065,12 @@
                 	openShipPopup(targetShip);
     			});
 
-                console.log(`定位到船舶: ${mmsi} (${targetShip.name})`);
+                console.log(
+                    `定位到船舶: ${mmsi} (${targetShip.name})；` +
+                    `同时显示 ${relatedShips.length} 艘关联船舶`
+                );
             } else {
-                // 如果是新出现的船只，但尚未进入 shipData 列表，可能会找不到
-                alert(`未找到 MMSI: ${mmsi} 的船舶数据。`);
+                alert(`MMSI: ${normalizedMmsi} 的检测结果缺少有效船位，暂时无法定位。`);
             }
         }
         
@@ -1308,6 +2082,582 @@
                     handleToggleChange(this, featureId);
                 };
             });
+        }
+
+        function setBaseMap(baseMapType) {
+            if (!map) return;
+
+            const isTerrain = baseMapType === 'terrain';
+            const baseLayers = isTerrain
+                ? [
+                    new AMap.TileLayer.Satellite(),
+                    new AMap.TileLayer.RoadNet()
+                ]
+                : [AMap.createDefaultLayer()];
+
+            map.setLayers(baseLayers);
+
+            document.querySelectorAll('[data-base-map]').forEach(button => {
+                const isActive = button.dataset.baseMap === baseMapType;
+                button.classList.toggle('active', isActive);
+                button.setAttribute('aria-pressed', String(isActive));
+            });
+        }
+
+        function setupBaseMapSelector() {
+            document.querySelectorAll('[data-base-map]').forEach(button => {
+                button.addEventListener('click', () => setBaseMap(button.dataset.baseMap));
+            });
+        }
+
+        function setupInfoLayerButtons() {
+            document.querySelectorAll('.info-button').forEach(button => {
+                button.addEventListener('click', () => {
+                    const isSelected = !button.classList.contains('active');
+                    button.classList.toggle('active', isSelected);
+                    button.setAttribute('aria-pressed', String(isSelected));
+
+                    if (button.id === 'info-all-ships') {
+                        setAllShipsVisibility(isSelected);
+                    } else if (button.id === 'info-meteorology') {
+                        setMarineWeatherLayerVisibility(isSelected);
+                    } else if (button.id === 'info-current-typhoon') {
+                        setCurrentTyphoonLayerVisibility(isSelected);
+                    } else if (button.id === 'info-typhoon-warning-lines') {
+                        setTyphoonWarningLinesVisibility(isSelected);
+                    }
+                });
+            });
+        }
+
+        function setTyphoonStatus(message, isError = false) {
+            const status = document.getElementById('typhoon-layer-status');
+            status.textContent = message;
+            status.classList.toggle('error', isError);
+        }
+
+        function setMarineWeatherStatus(message, isError = false) {
+            const status = document.getElementById('meteorology-layer-status');
+            status.textContent = message;
+            status.classList.toggle('error', isError);
+        }
+
+        function setOverlaysVisible(overlays, isVisible) {
+            overlays.forEach(overlay => {
+                if (isVisible) {
+                    overlay.show();
+                } else {
+                    overlay.hide();
+                }
+            });
+        }
+
+        function removeOverlays(overlays) {
+            overlays.forEach(overlay => overlay.setMap(null));
+        }
+
+        function convertGpsCoordinates(coordinates) {
+            if (!coordinates.length) return Promise.resolve([]);
+
+            const chunks = [];
+            for (let index = 0; index < coordinates.length; index += 40) {
+                chunks.push(coordinates.slice(index, index + 40));
+            }
+
+            return Promise.all(chunks.map(chunk => new Promise(resolve => {
+                AMap.convertFrom(chunk, 'gps', (status, result) => {
+                    if (
+                        status === 'complete' &&
+                        result &&
+                        result.info === 'ok' &&
+                        Array.isArray(result.locations) &&
+                        result.locations.length === chunk.length
+                    ) {
+                        resolve(result.locations);
+                    } else {
+                        console.warn('地理坐标转换失败，暂时使用原始坐标。', status, result);
+                        resolve(chunk);
+                    }
+                });
+            }))).then(results => results.flat());
+        }
+
+        function formatMarineValue(value, digits = 1) {
+            const number = Number(value);
+            return Number.isFinite(number) ? number.toFixed(digits) : '--';
+        }
+
+        function formatDirection(value, movement = 'from') {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '--';
+            const directions = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'];
+            const normalized = ((number % 360) + 360) % 360;
+            const name = directions[Math.round(normalized / 45) % 8];
+            const prefix = movement === 'to' ? '流向' : '来自';
+            return `${prefix}${name} ${Math.round(normalized)}°`;
+        }
+
+        function createMarineWeatherPopup(point) {
+            const popup = document.createElement('div');
+            popup.className = 'marine-weather-popup';
+
+            const closeButton = document.createElement('button');
+            closeButton.className = 'marine-popup-close';
+            closeButton.type = 'button';
+            closeButton.setAttribute('aria-label', '关闭气象详情');
+            closeButton.textContent = '×';
+            closeButton.addEventListener('click', () => {
+                if (marineWeatherInfoWindow) marineWeatherInfoWindow.close();
+            });
+            popup.appendChild(closeButton);
+
+            const title = document.createElement('h4');
+            title.textContent = point.name;
+            popup.appendChild(title);
+
+            const rows = [
+                `风速：${formatMarineValue(point.wind.speed)} m/s`,
+                `风向：${formatDirection(point.wind.direction)}`,
+                `阵风：${formatMarineValue(point.wind.gust)} m/s`,
+                `浪高：${formatMarineValue(point.wave.height)} m`,
+                `浪向：${formatDirection(point.wave.direction)}`,
+                `流速：${formatMarineValue(point.current.speed, 2)} m/s`,
+                `流向：${formatDirection(point.current.direction, 'to')}`,
+                `海温：${formatMarineValue(point.sea_surface_temperature)} °C`,
+            ];
+            rows.forEach(text => {
+                const row = document.createElement('p');
+                row.textContent = text;
+                popup.appendChild(row);
+            });
+
+            const time = document.createElement('p');
+            time.className = 'marine-popup-time';
+            time.textContent = `模式时间：${point.time || '--'}`;
+            popup.appendChild(time);
+            return popup;
+        }
+
+        function createMarineWeatherMarker(point, position) {
+            const markerContent = document.createElement('div');
+            markerContent.className = 'marine-data-marker';
+            markerContent.title = `${point.name}，点击查看风浪流详情`;
+
+            const windRow = document.createElement('div');
+            windRow.className = 'marine-marker-wind';
+            const windArrow = document.createElement('span');
+            windArrow.className = 'marine-direction-arrow';
+            windArrow.textContent = '↑';
+            const windDirection = Number(point.wind.direction);
+            const windFlowDirection = Number.isFinite(windDirection)
+                ? windDirection + 180
+                : 0;
+            windArrow.style.transform = `rotate(${windFlowDirection}deg)`;
+            const windValue = document.createElement('span');
+            windValue.textContent =
+                `风 ${formatMarineValue(point.wind.speed)} m/s`;
+            windRow.append(windArrow, windValue);
+            markerContent.appendChild(windRow);
+
+            const seaRow = document.createElement('div');
+            seaRow.className = 'marine-marker-sea';
+            seaRow.textContent =
+                `浪 ${formatMarineValue(point.wave.height)} m · ` +
+                `流 ${formatMarineValue(point.current.speed, 2)} m/s`;
+            markerContent.appendChild(seaRow);
+
+            const marker = new AMap.Marker({
+                map: map,
+                position: position,
+                content: markerContent,
+                anchor: 'bottom-center',
+                zIndex: 85,
+            });
+            marker.on('click', () => {
+                if (!marineWeatherInfoWindow) {
+                    marineWeatherInfoWindow = new AMap.InfoWindow({
+                        isCustom: true,
+                        offset: new AMap.Pixel(0, -40),
+                    });
+                }
+                marineWeatherInfoWindow.setContent(
+                    createMarineWeatherPopup(point)
+                );
+                marineWeatherInfoWindow.open(map, position);
+            });
+            return marker;
+        }
+
+        async function renderMarineWeather(payload) {
+            const points = payload.points || [];
+            const converted = await convertGpsCoordinates(
+                points.map(point => [point.longitude, point.latitude])
+            );
+            const nextOverlays = points.map((point, index) =>
+                createMarineWeatherMarker(point, converted[index])
+            );
+
+            removeOverlays(marineWeatherOverlays);
+            marineWeatherOverlays = nextOverlays;
+            setOverlaysVisible(
+                marineWeatherOverlays,
+                marineWeatherLayerVisible
+            );
+
+            if (!points.length) {
+                setMarineWeatherStatus('当前没有可用的广东沿海风浪流数据');
+                return;
+            }
+
+            const staleText = payload.stale ? ' · 暂用缓存数据' : '';
+            const dataTime = points.find(point => point.time)?.time;
+            setMarineWeatherStatus(
+                `数据源：${payload.source.attribution || payload.source.name}` +
+                (dataTime ? ` · ${dataTime}` : '') +
+                staleText +
+                ` · ${payload.notice}`
+            );
+        }
+
+        function loadMarineWeather() {
+            if (marineWeatherLoadPromise) return marineWeatherLoadPromise;
+
+            setMarineWeatherStatus('正在加载广东沿海风浪流数据……');
+            marineWeatherLoadPromise = fetch(
+                '/api/environment/guangdong-marine/',
+                { cache: 'no-store' }
+            )
+                .then(async response => {
+                    const payload = await response.json();
+                    if (!response.ok || !payload.success) {
+                        throw new Error(
+                            payload.message || `HTTP ${response.status}`
+                        );
+                    }
+                    await renderMarineWeather(payload);
+                    return payload;
+                })
+                .catch(error => {
+                    setMarineWeatherStatus(
+                        `气象数据加载失败：${error.message}`,
+                        true
+                    );
+                    throw error;
+                })
+                .finally(() => {
+                    marineWeatherLoadPromise = null;
+                });
+            return marineWeatherLoadPromise;
+        }
+
+        function setMarineWeatherLayerVisibility(isVisible) {
+            marineWeatherLayerVisible = isVisible;
+            setOverlaysVisible(marineWeatherOverlays, isVisible);
+
+            if (isVisible) {
+                loadMarineWeather().catch(() => {});
+                if (!marineWeatherRefreshTimer) {
+                    marineWeatherRefreshTimer = window.setInterval(() => {
+                        if (marineWeatherLayerVisible) {
+                            loadMarineWeather().catch(() => {});
+                        }
+                    }, 15 * 60 * 1000);
+                }
+            } else {
+                setMarineWeatherStatus('');
+                if (marineWeatherInfoWindow) {
+                    marineWeatherInfoWindow.close();
+                }
+                if (marineWeatherRefreshTimer) {
+                    window.clearInterval(marineWeatherRefreshTimer);
+                    marineWeatherRefreshTimer = null;
+                }
+            }
+        }
+
+        function getTyphoonColor(intensity) {
+            const value = String(intensity || '').toLowerCase();
+            if (value.includes('super typhoon')) return '#C530D8';
+            if (value.includes('severe typhoon')) return '#E53E3E';
+            if (value.includes('typhoon')) return '#F56500';
+            if (value.includes('severe tropical storm')) return '#D69E2E';
+            if (value.includes('tropical storm')) return '#38A169';
+            return '#3182CE';
+        }
+
+        function createTyphoonPoint(position, point, radius = 5) {
+            return new AMap.CircleMarker({
+                map: map,
+                center: position,
+                radius: radius,
+                strokeColor: '#FFFFFF',
+                strokeWeight: 1,
+                fillColor: getTyphoonColor(point.intensity),
+                fillOpacity: 0.95,
+                zIndex: 90,
+            });
+        }
+
+        async function renderOneCurrentTyphoon(typhoon) {
+            const past = typhoon.past || [];
+            const forecast = typhoon.forecast || [];
+            const allPoints = [...past, typhoon.current, ...forecast];
+            const converted = await convertGpsCoordinates(
+                allPoints.map(point => [point.longitude, point.latitude])
+            );
+            const currentIndex = past.length;
+            const pastPositions = converted.slice(0, currentIndex + 1);
+            const currentPosition = converted[currentIndex];
+            const forecastPositions = [
+                currentPosition,
+                ...converted.slice(currentIndex + 1)
+            ];
+            const overlays = [];
+
+            if (pastPositions.length > 1) {
+                overlays.push(new AMap.Polyline({
+                    map: map,
+                    path: pastPositions,
+                    strokeColor: '#00BFFF',
+                    strokeWeight: 4,
+                    strokeOpacity: 0.95,
+                    zIndex: 80,
+                }));
+            }
+
+            if (forecastPositions.length > 1) {
+                overlays.push(new AMap.Polyline({
+                    map: map,
+                    path: forecastPositions,
+                    strokeColor: '#FFFFFF',
+                    strokeWeight: 3,
+                    strokeOpacity: 0.95,
+                    strokeStyle: 'dashed',
+                    zIndex: 81,
+                }));
+            }
+
+            past.forEach((point, index) => {
+                overlays.push(createTyphoonPoint(converted[index], point, 3));
+            });
+            forecast.forEach((point, index) => {
+                overlays.push(createTyphoonPoint(
+                    converted[currentIndex + 1 + index],
+                    point,
+                    5
+                ));
+            });
+
+            const markerContent = document.createElement('div');
+            markerContent.className = 'typhoon-center-marker';
+            markerContent.textContent = '🌀';
+            markerContent.title = `${typhoon.display_name} 当前中心`;
+            overlays.push(new AMap.Marker({
+                map: map,
+                position: currentPosition,
+                content: markerContent,
+                anchor: 'center',
+                zIndex: 100,
+            }));
+
+            const current = typhoon.current;
+            const detailParts = [
+                typhoon.display_name,
+                current.intensity,
+                current.maximum_wind_text
+            ].filter(Boolean);
+            overlays.push(new AMap.Text({
+                map: map,
+                position: currentPosition,
+                text: detailParts.join(' · '),
+                anchor: 'bottom-left',
+                offset: new AMap.Pixel(18, -10),
+                zIndex: 101,
+                style: {
+                    padding: '5px 8px',
+                    border: '1px solid #63B3ED',
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(12, 16, 27, 0.9)',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                },
+            }));
+
+            return overlays;
+        }
+
+        async function renderCurrentTyphoons(payload) {
+            const nextOverlays = [];
+            for (const typhoon of payload.typhoons || []) {
+                nextOverlays.push(...await renderOneCurrentTyphoon(typhoon));
+            }
+
+            removeOverlays(currentTyphoonOverlays);
+            currentTyphoonOverlays = nextOverlays;
+            setOverlaysVisible(
+                currentTyphoonOverlays,
+                currentTyphoonLayerVisible
+            );
+
+            const typhoons = payload.typhoons || [];
+            if (!typhoons.length) {
+                setTyphoonStatus('当前无香港天文台发布路径的热带气旋');
+                return;
+            }
+
+            const bulletinTimes = typhoons
+                .map(item => item.bulletin_time)
+                .filter(Boolean)
+                .sort();
+            const latestTime = bulletinTimes[bulletinTimes.length - 1];
+            const staleText = payload.stale ? ' · 暂用缓存数据' : '';
+            setTyphoonStatus(
+                `数据源：${payload.source.name}` +
+                (latestTime ? ` · 发布：${latestTime}` : '') +
+                staleText
+            );
+        }
+
+        function loadCurrentTyphoons() {
+            if (currentTyphoonLoadPromise) return currentTyphoonLoadPromise;
+
+            setTyphoonStatus('正在加载当前台风数据……');
+            currentTyphoonLoadPromise = fetch('/api/typhoons/current/', {
+                cache: 'no-store',
+            })
+                .then(async response => {
+                    const payload = await response.json();
+                    if (!response.ok || !payload.success) {
+                        throw new Error(payload.message || `HTTP ${response.status}`);
+                    }
+                    await renderCurrentTyphoons(payload);
+                    return payload;
+                })
+                .catch(error => {
+                    setTyphoonStatus(`当前台风加载失败：${error.message}`, true);
+                    throw error;
+                })
+                .finally(() => {
+                    currentTyphoonLoadPromise = null;
+                });
+            return currentTyphoonLoadPromise;
+        }
+
+        function setCurrentTyphoonLayerVisibility(isVisible) {
+            currentTyphoonLayerVisible = isVisible;
+            setOverlaysVisible(currentTyphoonOverlays, isVisible);
+
+            if (isVisible) {
+                loadCurrentTyphoons().catch(() => {});
+                if (!typhoonRefreshTimer) {
+                    typhoonRefreshTimer = window.setInterval(() => {
+                        if (currentTyphoonLayerVisible) {
+                            loadCurrentTyphoons().catch(() => {});
+                        }
+                    }, 10 * 60 * 1000);
+                }
+            } else {
+                setTyphoonStatus('');
+                if (typhoonRefreshTimer) {
+                    window.clearInterval(typhoonRefreshTimer);
+                    typhoonRefreshTimer = null;
+                }
+            }
+        }
+
+        async function createTyphoonWarningLines() {
+            const definitions = [
+                {
+                    name: '24小时警戒线',
+                    color: '#E53E3E',
+                    path: [[127, 34], [127, 22], [110, 15]],
+                },
+                {
+                    name: '48小时警戒线',
+                    color: '#F6E05E',
+                    path: [[132, 34], [132, 22], [125, 15], [110, 15]],
+                },
+            ];
+            const nextOverlays = [];
+
+            for (const definition of definitions) {
+                const path = await convertGpsCoordinates(definition.path);
+                nextOverlays.push(new AMap.Polyline({
+                    map: map,
+                    path: path,
+                    strokeColor: definition.color,
+                    strokeWeight: 3,
+                    strokeOpacity: 0.95,
+                    zIndex: 70,
+                }));
+                nextOverlays.push(new AMap.Text({
+                    map: map,
+                    position: path[0],
+                    text: definition.name,
+                    anchor: 'bottom-left',
+                    offset: new AMap.Pixel(4, -4),
+                    zIndex: 71,
+                    style: {
+                        padding: '3px 6px',
+                        border: `1px solid ${definition.color}`,
+                        borderRadius: '3px',
+                        backgroundColor: 'rgba(12, 16, 27, 0.85)',
+                        color: definition.color,
+                        fontSize: '12px',
+                        whiteSpace: 'nowrap',
+                    },
+                }));
+            }
+
+            typhoonWarningLineOverlays = nextOverlays;
+            setOverlaysVisible(
+                typhoonWarningLineOverlays,
+                typhoonWarningLinesVisible
+            );
+        }
+
+        function setTyphoonWarningLinesVisibility(isVisible) {
+            typhoonWarningLinesVisible = isVisible;
+            if (!typhoonWarningLineOverlays.length && isVisible) {
+                createTyphoonWarningLines().catch(error => {
+                    setTyphoonStatus(`台风警戒线加载失败：${error.message}`, true);
+                });
+                return;
+            }
+            setOverlaysVisible(typhoonWarningLineOverlays, isVisible);
+        }
+
+        function shouldDisplayShipMarker(mmsi) {
+            return areAllShipsVisible ||
+                functionSelectedShipMmsis.has(normalizeMmsi(mmsi));
+        }
+
+        function syncShipMarkerVisibility() {
+            shipMarkersMap.forEach((marker, mmsi) => {
+                if (shouldDisplayShipMarker(mmsi)) {
+                    marker.show();
+                } else {
+                    marker.hide();
+                }
+            });
+        }
+
+        function setAllShipsVisibility(isVisible) {
+            areAllShipsVisible = isVisible;
+            functionSelectedShipMmsis.clear();
+
+            if (!isVisible) {
+                selectedShipMmsi = null;
+                selectedShipHighlightType = 'normal';
+                closeShipPopup();
+                document.getElementById('playback-controls').style.display = 'none';
+                document.querySelectorAll('#ship-list .ship-item').forEach(item => {
+                    item.classList.remove('active', 'violation-selected');
+                });
+            }
+
+            syncShipMarkerVisibility();
         }
         // ---------------------------------------------------
 
@@ -1321,20 +2671,79 @@
 
             map = new AMap.Map('amap-instance', {
                 viewMode: '3D',
-                zoom: 9, 
-                center: [113.280637, 23.125178], 
-                mapStyle: 'amap://styles/normal' 
+                zoom: 9,
+                center: [113.280637, 23.125178],
+                mapStyle: 'amap://styles/normal'
             });
 
             map.on('zoomend', switchMarkersOnZoom);
-            
+
             // 【修改】初始化地图后，立即尝试建立 WebSocket 连接
-            initWebSocket(); 
-            
+            initWebSocket();
+
             // 【重要】移除 loadInitialShips() 调用，数据由 WebSocket 的 onmessage 处理
-            // loadInitialShips(); 
-            
-            document.getElementById('btn-draw-fence').onclick = startDrawingFence;
+            // loadInitialShips();
+
+            document.getElementById('fence-draw').onclick = startDrawingFence;
+            document.getElementById('fence-save').onclick = saveFence;
+            document.getElementById('fence-new').onclick = resetFenceForm;
+            document.getElementById('fence-active').onclick = function() {
+                setFenceActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('blacklist-save').onclick = saveBlacklistEntry;
+            document.getElementById('blacklist-new').onclick = resetBlacklistForm;
+            document.getElementById('blacklist-active').onclick = function() {
+                setBlacklistActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('blacklist-search').oninput = renderBlacklistEntries;
+            document.getElementById('berthing-save').onclick = saveBerthingPermit;
+            document.getElementById('berthing-new').onclick = resetBerthingPermitForm;
+            document.getElementById('berthing-active').onclick = function() {
+                setBerthingActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('berthing-search').oninput = renderBerthingPermits;
+            document.getElementById('transfer-save').onclick = saveTransferPlan;
+            document.getElementById('transfer-new').onclick = resetTransferPlanForm;
+            document.getElementById('transfer-active').onclick = function() {
+                setTransferActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('transfer-search').oninput = renderTransferPlans;
+            document.getElementById('smuggling-zone-tab').onclick = () =>
+                switchSmugglingManagementTab('zone');
+            document.getElementById('smuggling-permit-tab').onclick = () =>
+                switchSmugglingManagementTab('permit');
+            document.getElementById('smuggling-zone-save').onclick =
+                saveSmugglingZone;
+            document.getElementById('smuggling-zone-new').onclick =
+                resetSmugglingZoneForm;
+            document.getElementById('smuggling-zone-draw').onclick =
+                startDrawingSmugglingZone;
+            document.getElementById('smuggling-zone-active').onclick =
+                function() {
+                    setSmugglingZoneActiveState(
+                        this.dataset.active !== 'true'
+                    );
+                };
+            document.getElementById('smuggling-zone-search').oninput =
+                renderSmugglingZones;
+            document.getElementById('smuggling-permit-save').onclick =
+                saveSmugglingPermit;
+            document.getElementById('smuggling-permit-new').onclick =
+                resetSmugglingPermitForm;
+            document.getElementById('smuggling-permit-active').onclick =
+                function() {
+                    setSmugglingPermitActiveState(
+                        this.dataset.active !== 'true'
+                    );
+                };
+            document.getElementById('smuggling-permit-search').oninput =
+                renderSmugglingPermits;
+            loadFences();
+            loadBlacklist();
+            loadBerthingPermits();
+            loadTransferPlans();
+            loadSmugglingZones();
+            loadSmugglingPermits();
         }
 
         // ----------------- 【重构函数】 loadInitialShips() 改名为 updateMarkersAndList() -----------------
@@ -1350,11 +2759,12 @@
             const now = Date.now();
             
             shipData.forEach(ship => {
+                const shipMmsi = String(ship.mmsi);
                 // 1. 更新货创建时间戳记录
-                shipLastSeenMap.set(ship.mmsi, now);
+                shipLastSeenMap.set(shipMmsi, now);
                 
                 // 2. 获取历史船舶目标，并根据缩放比例来展示船舶
-                let marker = shipMarkersMap.get(ship.mmsi);
+                let marker = shipMarkersMap.get(shipMmsi);
                 // const currentZoom = map.getZoom();
                 // const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
                 const currentZoom = map.getZoom();
@@ -1369,9 +2779,6 @@
                     marker.setPosition([ship.lon, ship.lat]);
                     marker.setAngle(isTriangleMode ? ship.heading : 0);
                     marker.setExtData(ship);
-
-                    // const isActive = (ship.mmsi === selectedShipMmsi);
-                    // refreshMarkerIcon(marker, isActive);
                 } else {
                     // 3.2. 不存在则新建
                     marker = new AMap.Marker({
@@ -1388,21 +2795,31 @@
 
                     // Marker 交互
                     marker.on('click', () => {
-                        // selectedShipMmsi = ship.mmsi;
-                        // selectShip(ship.mmsi); // ✅ 调用选中逻辑
+                        const currentShip = marker.getExtData();
+                        selectShip(currentShip.mmsi);
                         document.getElementById('playback-controls').style.display = 'flex';
-                        openShipPopup(ship);
+                        openShipPopup(currentShip);
                     });
 
-                    shipMarkersMap.set(ship.mmsi, marker);
+                    shipMarkersMap.set(shipMmsi, marker);
                 }
 
-                // const isActive = ship.mmsi === selectedShipMmsi; // 判断这艘船是否是当前选中状态
-                // refreshMarkerIcon(marker, isActive);            // 调用辅助函数刷新颜色
+                // 实时数据更新时继续遵循“全部船舶”的显示状态。
+                if (shouldDisplayShipMarker(shipMmsi)) {
+                    marker.show();
+                } else {
+                    marker.hide();
+                }
 
                 // 4. 同步更新侧边栏列表（仅显示当前实时存在的目标）
                 const listItem = document.createElement('li');
                 listItem.className = 'ship-item';
+                listItem.dataset.mmsi = shipMmsi;
+                listItem.classList.toggle('active', shipMmsi === selectedShipMmsi);
+                listItem.classList.toggle(
+                    'violation-selected',
+                    shipMmsi === selectedShipMmsi && selectedShipHighlightType === 'violation'
+                );
 
                 // --- 关键修复：添加以下三行来显示文字和状态图标 ---
                 const statusColor = ship.status === 'sailing' ? 'var(--color-success-green)' : (ship.status === 'anchor' ? 'var(--color-warning-yellow)' : 'var(--color-alert-red)');
@@ -1410,12 +2827,7 @@
                 // ----------------------------------------------
                 
                 listItem.onclick = () => {
-                    // selectedShipMmsi = ship.mmsi; // 记录 ID
-                    // selectShip(ship.mmsi); // ✅ 调用选中逻辑
-
-                    document.querySelectorAll('.ship-item.active').forEach(item => item.classList.remove('active'));
-                    listItem.classList.add('active');
-                    
+                    selectShip(ship.mmsi);
                     document.getElementById('playback-controls').style.display = 'flex';
                     centerShipWithOffsetCorrection(ship, 12, () => {
                         openShipPopup(ship);
@@ -1473,20 +2885,13 @@
             
             const currentZoom = map.getZoom();
             const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-            const markerSizeWidth = isTriangleMode ? 30 : 15;
-            const markerSizeHeight = isTriangleMode ? 30 : 15;
-            const newIconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
-
             shipMarkersMap.forEach((marker, mmsi) => {
                 const ship = marker.getExtData();
-
-                const icon = new AMap.Icon({
-                    size: new AMap.Size(markerSizeWidth, markerSizeHeight),
-                    image: newIconUrl,
-                    imageSize: new AMap.Size(markerSizeWidth, markerSizeHeight)
-                });
-
-                marker.setIcon(icon);
+                refreshMarkerIcon(
+                    marker,
+                    String(mmsi) === selectedShipMmsi,
+                    selectedShipHighlightType
+                );
                 marker.setAngle(isTriangleMode ? ship.heading : 0); 
             });
         }
@@ -1503,6 +2908,11 @@
                             shipMarkersMap.delete(mmsi);
                         }
                         shipLastSeenMap.delete(mmsi);
+                        if (String(mmsi) === selectedShipMmsi) {
+                            selectedShipMmsi = null;
+                            selectedShipHighlightType = 'normal';
+                        }
+                        functionSelectedShipMmsis.delete(normalizeMmsi(mmsi));
                         console.log(`目标 ${mmsi} 超过 ${EXPIRATION_TIME/1000}s 未更新，已移除。`);
                     }
                 }
@@ -1524,25 +2934,1898 @@
                 targetButton.classList.add('active');
             } 
         }
-        
-        function startDrawingFence() {
+
+        function openFencePanel() {
+            document.querySelectorAll('.side-panel-container').forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon').forEach(button => button.classList.remove('active'));
+            document.getElementById('fence-panel-container').classList.add('active');
+            document.getElementById('btn-fence').classList.add('active');
+        }
+
+        function setFenceMessage(message, isError = false) {
+            const element = document.getElementById('fence-message');
+            element.textContent = message;
+            element.style.color = isError ? 'var(--color-alert-red)' : 'var(--color-success-green)';
+        }
+
+        function getCookie(name) {
+            const prefix = `${name}=`;
+            const cookie = document.cookie.split(';').map(item => item.trim())
+                .find(item => item.startsWith(prefix));
+            return cookie ? decodeURIComponent(cookie.substring(prefix.length)) : '';
+        }
+
+        async function fenceRequest(url, options = {}) {
+            const requestOptions = {...options};
+            requestOptions.headers = {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+                ...(options.headers || {}),
+            };
+            const response = await fetch(url, requestOptions);
+            let payload;
+            try {
+                payload = await response.json();
+            } catch (error) {
+                throw new Error(`服务器返回了无法解析的响应（HTTP ${response.status}）`);
+            }
+            if (!response.ok || payload.success === false) {
+                throw new Error(payload.message || `请求失败（HTTP ${response.status}）`);
+            }
+            return payload;
+        }
+
+        function parseFenceVertices(text) {
+            const value = text.trim();
+            if (!value) throw new Error('请至少输入 3 个顶点坐标');
+
+            let rows;
+            if (value.startsWith('[')) {
+                try {
+                    rows = JSON.parse(value);
+                } catch (error) {
+                    throw new Error('坐标 JSON 格式不正确');
+                }
+            } else {
+                rows = value.split(/[\n;]+/).filter(row => row.trim()).map(row => {
+                    const parts = row.trim().split(/[\s,，]+/);
+                    return parts.map(Number);
+                });
+            }
+            if (!Array.isArray(rows) || rows.length < 3) {
+                throw new Error('电子围栏至少需要 3 个顶点');
+            }
+            rows.forEach((point, index) => {
+                if (!Array.isArray(point) || point.length !== 2 ||
+                    !Number.isFinite(Number(point[0])) || !Number.isFinite(Number(point[1]))) {
+                    throw new Error(`第 ${index + 1} 个顶点格式不正确`);
+                }
+            });
+            return rows.map(point => [Number(point[0]), Number(point[1])]);
+        }
+
+        function formatFenceVertices(vertices) {
+            return vertices.map(point =>
+                `${Number(point[0]).toFixed(6)}, ${Number(point[1]).toFixed(6)}`
+            ).join('\n');
+        }
+
+        function setFenceActiveState(isActive) {
+            const button = document.getElementById('fence-active');
+            button.dataset.active = String(isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+            button.classList.toggle('inactive', !isActive);
+            button.textContent = isActive
+                ? '围栏状态：已启用（点击停用）'
+                : '围栏状态：已停用（点击启用）';
+        }
+
+        function resetFenceForm() {
+            document.getElementById('fence-id').value = '';
+            document.getElementById('fence-name').value = '';
+            document.getElementById('fence-description').value = '';
+            document.getElementById('fence-crossing-mode').value = 'enter';
+            document.getElementById('fence-vertices').value = '';
+            setFenceActiveState(true);
+            setFenceMessage('已切换到新建模式');
+        }
+
+        function editFence(fenceId) {
+            const fence = electronicFences.get(Number(fenceId));
+            if (!fence) return;
+            openFencePanel();
+            document.getElementById('fence-id').value = fence.id;
+            document.getElementById('fence-name').value = fence.name;
+            document.getElementById('fence-description').value = fence.description || '';
+            document.getElementById('fence-crossing-mode').value = fence.crossing_mode || 'enter';
+            document.getElementById('fence-vertices').value = formatFenceVertices(fence.vertices);
+            setFenceActiveState(fence.is_active);
+            setFenceMessage(`正在编辑：${fence.name}`);
+            const polygon = fencePolygons.get(fence.id);
+            if (polygon) map.setFitView([polygon], true, [80, 80, 80, 80]);
+        }
+
+        function viewFence(fenceId) {
+            const fence = electronicFences.get(Number(fenceId));
+            const polygon = fencePolygons.get(Number(fenceId));
+            if (!fence || !polygon || !map) {
+                setFenceMessage('该电子围栏暂时无法在地图中显示', true);
+                return;
+            }
+
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            // immediately=true：直接定位，不播放默认的缩放/平移动画。
+            map.setFitView([polygon], true, [100, 100, 100, 100], 16);
+
+            polygon.setOptions({
+                strokeColor: '#00E5FF',
+                strokeWeight: 5,
+                fillOpacity: 0.35,
+            });
+            window.setTimeout(() => {
+                if (!fencePolygons.has(fence.id)) return;
+                polygon.setOptions({
+                    strokeColor: fence.is_active ? '#FFC107' : '#718096',
+                    strokeWeight: 2,
+                    fillOpacity: fence.is_active ? 0.18 : 0.08,
+                });
+            }, 1800);
+        }
+
+        function renderFencePolygons() {
+            fencePolygons.forEach(polygon => polygon.setMap(null));
+            fencePolygons.clear();
             if (!map) return;
+
+            electronicFences.forEach(fence => {
+                const polygon = new AMap.Polygon({
+                    path: fence.vertices,
+                    strokeColor: fence.is_active ? '#FFC107' : '#718096',
+                    strokeWeight: 2,
+                    strokeOpacity: 0.95,
+                    fillColor: fence.is_active ? '#E53E3E' : '#718096',
+                    fillOpacity: fence.is_active ? 0.18 : 0.08,
+                    zIndex: 40,
+                });
+                polygon.setMap(map);
+                polygon.on('click', () => editFence(fence.id));
+                fencePolygons.set(fence.id, polygon);
+            });
+        }
+
+        function renderFenceList() {
+            const container = document.getElementById('fence-list');
+            container.innerHTML = '';
+            if (!electronicFences.size) {
+                container.textContent = '暂无电子围栏';
+                return;
+            }
+
+            electronicFences.forEach(fence => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const name = document.createElement('span');
+                name.textContent = fence.name;
+                const status = document.createElement('span');
+                status.textContent = fence.is_active ? '已启用' : '已停用';
+                status.style.color = fence.is_active ? 'var(--color-success-green)' : 'var(--color-text-light)';
+                heading.append(name, status);
+
+                const meta = document.createElement('div');
+                meta.className = 'fence-list-meta';
+                meta.textContent = `${fence.crossing_mode_label || '禁止驶入'} · ${fence.vertices.length} 个顶点 · 编号 ${fence.id}`;
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const viewButton = document.createElement('button');
+                viewButton.className = 'fence-button';
+                viewButton.textContent = '查看';
+                viewButton.onclick = () => viewFence(fence.id);
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editFence(fence.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = fence.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleFence(fence);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteFence(fence);
+                actions.append(viewButton, editButton, toggleButton, deleteButton);
+
+                item.append(heading, meta, actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadFences() {
+            try {
+                const payload = await fenceRequest('/CrossingBoundary/fences/', {method: 'GET'});
+                electronicFences.clear();
+                payload.results.forEach(fence => electronicFences.set(fence.id, fence));
+                renderFenceList();
+                renderFencePolygons();
+            } catch (error) {
+                setFenceMessage(`围栏加载失败：${error.message}`, true);
+                document.getElementById('fence-list').textContent = '加载失败';
+            }
+        }
+
+        async function saveFence() {
+            const fenceId = document.getElementById('fence-id').value;
+            try {
+                const data = {
+                    name: document.getElementById('fence-name').value.trim(),
+                    description: document.getElementById('fence-description').value.trim(),
+                    crossing_mode: document.getElementById('fence-crossing-mode').value,
+                    vertices: parseFenceVertices(document.getElementById('fence-vertices').value),
+                    is_active: document.getElementById('fence-active').dataset.active === 'true',
+                };
+                if (!data.name) throw new Error('请输入围栏名称');
+                const url = fenceId
+                    ? `/CrossingBoundary/fences/${fenceId}/`
+                    : '/CrossingBoundary/fences/';
+                const payload = await fenceRequest(url, {
+                    method: fenceId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                setFenceMessage(payload.message);
+                await loadFences();
+                editFence(payload.result.id);
+            } catch (error) {
+                setFenceMessage(error.message, true);
+            }
+        }
+
+        async function toggleFence(fence) {
+            try {
+                const payload = await fenceRequest(`/CrossingBoundary/fences/${fence.id}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({is_active: !fence.is_active}),
+                });
+                setFenceMessage(payload.message);
+                await loadFences();
+            } catch (error) {
+                setFenceMessage(error.message, true);
+            }
+        }
+
+        async function deleteFence(fence) {
+            if (!confirm(`确定删除电子围栏“${fence.name}”吗？此操作不可撤销。`)) return;
+            try {
+                const payload = await fenceRequest(`/CrossingBoundary/fences/${fence.id}/`, {
+                    method: 'DELETE',
+                });
+                resetFenceForm();
+                setFenceMessage(payload.message);
+                await loadFences();
+            } catch (error) {
+                setFenceMessage(error.message, true);
+            }
+        }
+
+        function openBlacklistPanel() {
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            document.getElementById('blacklist-panel-container').classList.add('active');
+            document.getElementById('btn-blacklist').classList.add('active');
+        }
+
+        function setBlacklistMessage(message, isError = false) {
+            const element = document.getElementById('blacklist-message');
+            element.textContent = message;
+            element.style.minHeight = '20px';
+            element.style.marginBottom = '8px';
+            element.style.fontSize = '0.85rem';
+            element.style.color = isError
+                ? 'var(--color-alert-red)'
+                : 'var(--color-success-green)';
+        }
+
+        function setBlacklistActiveState(isActive) {
+            const button = document.getElementById('blacklist-active');
+            button.dataset.active = String(isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+            button.classList.toggle('inactive', !isActive);
+            button.textContent = isActive
+                ? '名单状态：已启用（点击停用）'
+                : '名单状态：已停用（点击启用）';
+        }
+
+        function resetBlacklistForm() {
+            document.getElementById('blacklist-id').value = '';
+            document.getElementById('blacklist-mmsi').value = '';
+            document.getElementById('blacklist-name').value = '';
+            document.getElementById('blacklist-type').value = '';
+            document.getElementById('blacklist-length').value = '';
+            document.getElementById('blacklist-width').value = '';
+            document.getElementById('blacklist-reason').value = '';
+            setBlacklistActiveState(true);
+            setBlacklistMessage('已切换到新建模式');
+        }
+
+        function editBlacklistEntry(entryId) {
+            const entry = blacklistEntries.get(Number(entryId));
+            if (!entry) return;
+            openBlacklistPanel();
+            document.getElementById('blacklist-id').value = entry.id;
+            document.getElementById('blacklist-mmsi').value = entry.mmsi;
+            document.getElementById('blacklist-name').value = entry.ship_name || '';
+            document.getElementById('blacklist-type').value = entry.ship_type || '';
+            document.getElementById('blacklist-length').value = entry.length ?? '';
+            document.getElementById('blacklist-width').value = entry.width ?? '';
+            document.getElementById('blacklist-reason').value = entry.reason || '';
+            setBlacklistActiveState(entry.is_active);
+            setBlacklistMessage(`正在编辑 MMSI：${entry.mmsi}`);
+        }
+
+        function renderBlacklistEntries() {
+            const container = document.getElementById('blacklist-list');
+            const query = document.getElementById('blacklist-search')
+                .value.trim().toLowerCase();
+            container.innerHTML = '';
+
+            const entries = Array.from(blacklistEntries.values()).filter(entry => {
+                if (!query) return true;
+                return [
+                    entry.mmsi,
+                    entry.ship_name,
+                    entry.ship_type,
+                    entry.reason,
+                ].some(value => String(value || '').toLowerCase().includes(query));
+            });
+            if (!entries.length) {
+                container.textContent = query ? '没有匹配的黑名单船舶' : '暂无黑名单船舶';
+                return;
+            }
+
+            entries.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const name = document.createElement('span');
+                name.textContent = entry.ship_name || '未填写船名';
+                const status = document.createElement('span');
+                status.textContent = entry.is_active ? '已启用' : '已停用';
+                status.style.color = entry.is_active
+                    ? 'var(--color-alert-red)'
+                    : 'var(--color-text-light)';
+                heading.append(name, status);
+
+                const mmsi = document.createElement('div');
+                mmsi.style.margin = '5px 0';
+                mmsi.style.color = 'var(--color-warning-yellow)';
+                mmsi.textContent = `MMSI：${entry.mmsi}`;
+
+                const meta = document.createElement('div');
+                meta.className = 'fence-list-meta';
+                const dimensions = entry.length && entry.width
+                    ? ` · ${entry.length}m × ${entry.width}m`
+                    : '';
+                meta.textContent = `${entry.ship_type || '未填写类型'}${dimensions}`;
+
+                if (entry.reason) {
+                    const reason = document.createElement('div');
+                    reason.className = 'fence-list-meta';
+                    reason.textContent = `原因：${entry.reason}`;
+                    item.append(heading, mmsi, meta, reason);
+                } else {
+                    item.append(heading, mmsi, meta);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editBlacklistEntry(entry.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = entry.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleBlacklistEntry(entry);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteBlacklistEntry(entry);
+                actions.append(editButton, toggleButton, deleteButton);
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadBlacklist() {
+            try {
+                const payload = await fenceRequest('/BlackList/ships/', {method: 'GET'});
+                blacklistEntries.clear();
+                payload.results.forEach(entry => blacklistEntries.set(entry.id, entry));
+                renderBlacklistEntries();
+            } catch (error) {
+                setBlacklistMessage(`黑名单加载失败：${error.message}`, true);
+                document.getElementById('blacklist-list').textContent = '加载失败';
+            }
+        }
+
+        function optionalBlacklistNumber(elementId) {
+            const value = document.getElementById(elementId).value.trim();
+            if (!value) return null;
+            const number = Number(value);
+            if (!Number.isFinite(number) || number <= 0) {
+                throw new Error('船长和船宽必须是大于 0 的数字');
+            }
+            return number;
+        }
+
+        async function saveBlacklistEntry() {
+            const entryId = document.getElementById('blacklist-id').value;
+            try {
+                const mmsi = document.getElementById('blacklist-mmsi').value.trim();
+                if (!/^\d{9}$/.test(mmsi)) {
+                    throw new Error('MMSI 必须是 9 位数字');
+                }
+                const data = {
+                    mmsi,
+                    ship_name: document.getElementById('blacklist-name').value.trim(),
+                    ship_type: document.getElementById('blacklist-type').value.trim(),
+                    length: optionalBlacklistNumber('blacklist-length'),
+                    width: optionalBlacklistNumber('blacklist-width'),
+                    reason: document.getElementById('blacklist-reason').value.trim(),
+                    is_active: document.getElementById('blacklist-active').dataset.active === 'true',
+                };
+                const url = entryId
+                    ? `/BlackList/ships/${entryId}/`
+                    : '/BlackList/ships/';
+                const payload = await fenceRequest(url, {
+                    method: entryId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                setBlacklistMessage(payload.message);
+                await loadBlacklist();
+                editBlacklistEntry(payload.result.id);
+            } catch (error) {
+                setBlacklistMessage(error.message, true);
+            }
+        }
+
+        async function toggleBlacklistEntry(entry) {
+            try {
+                const payload = await fenceRequest(`/BlackList/ships/${entry.id}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({is_active: !entry.is_active}),
+                });
+                setBlacklistMessage(payload.message);
+                await loadBlacklist();
+            } catch (error) {
+                setBlacklistMessage(error.message, true);
+            }
+        }
+
+        async function deleteBlacklistEntry(entry) {
+            const displayName = entry.ship_name || entry.mmsi;
+            if (!confirm(`确定删除黑名单船舶“${displayName}”吗？此操作不可撤销。`)) return;
+            try {
+                const payload = await fenceRequest(`/BlackList/ships/${entry.id}/`, {
+                    method: 'DELETE',
+                });
+                if (document.getElementById('blacklist-id').value === String(entry.id)) {
+                    resetBlacklistForm();
+                }
+                setBlacklistMessage(payload.message);
+                await loadBlacklist();
+            } catch (error) {
+                setBlacklistMessage(error.message, true);
+            }
+        }
+
+        function openManagementPanel(panelId, buttonId) {
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            document.getElementById(panelId).classList.add('active');
+            document.getElementById(buttonId).classList.add('active');
+        }
+
+        function setManagementMessage(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.style.color = isError
+                ? 'var(--color-alert-red)'
+                : 'var(--color-success-green)';
+        }
+
+        function setManagementActiveState(buttonId, noun, isActive) {
+            const button = document.getElementById(buttonId);
+            button.dataset.active = String(isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+            button.classList.toggle('inactive', !isActive);
+            button.textContent = isActive
+                ? `${noun}状态：已启用（点击停用）`
+                : `${noun}状态：已停用（点击启用）`;
+        }
+
+        function toDateTimeLocal(value) {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            const localTime = new Date(
+                date.getTime() - date.getTimezoneOffset() * 60000
+            );
+            return localTime.toISOString().slice(0, 19);
+        }
+
+        function localInputToIso(elementId, required = false) {
+            const value = document.getElementById(elementId).value;
+            if (!value) {
+                if (required) throw new Error('请填写完整的批准作业时间');
+                return null;
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                throw new Error('日期时间格式不正确');
+            }
+            return date.toISOString();
+        }
+
+        function formatManagementDate(value, emptyText = '不限') {
+            if (!value) return emptyText;
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+            });
+        }
+
+        function validateVesselMmsi(value, label) {
+            if (!/^[2-7]\d{8}$/.test(value)) {
+                throw new Error(`${label}必须是有效的9位船舶 MMSI`);
+            }
+        }
+
+        function setBerthingActiveState(isActive) {
+            setManagementActiveState(
+                'berthing-active',
+                '许可',
+                isActive
+            );
+        }
+
+        function resetBerthingPermitForm() {
+            document.getElementById('berthing-permit-id').value = '';
+            document.getElementById('berthing-chinese-mmsi').value = '';
+            document.getElementById('berthing-foreign-mmsi').value = '';
+            document.getElementById('berthing-permit-number').value = '';
+            document.getElementById('berthing-valid-from').value = '';
+            document.getElementById('berthing-valid-until').value = '';
+            document.getElementById('berthing-notes').value = '';
+            setBerthingActiveState(true);
+            setManagementMessage(
+                'berthing-message',
+                '已切换到新建模式'
+            );
+        }
+
+        function editBerthingPermit(permitId) {
+            const permit = berthingPermits.get(Number(permitId));
+            if (!permit) return;
+            openManagementPanel(
+                'berthing-panel-container',
+                'btn-berthing'
+            );
+            document.getElementById('berthing-permit-id').value = permit.id;
+            document.getElementById('berthing-chinese-mmsi').value =
+                permit.chinese_mmsi;
+            document.getElementById('berthing-foreign-mmsi').value =
+                permit.foreign_mmsi;
+            document.getElementById('berthing-permit-number').value =
+                permit.permit_number || '';
+            document.getElementById('berthing-valid-from').value =
+                toDateTimeLocal(permit.valid_from);
+            document.getElementById('berthing-valid-until').value =
+                toDateTimeLocal(permit.valid_until);
+            document.getElementById('berthing-notes').value =
+                permit.notes || '';
+            setBerthingActiveState(permit.is_active);
+            setManagementMessage(
+                'berthing-message',
+                `正在编辑许可：${permit.chinese_mmsi} / ${permit.foreign_mmsi}`
+            );
+        }
+
+        function renderBerthingPermits() {
+            const container = document.getElementById('berthing-list');
+            const query = document.getElementById('berthing-search')
+                .value.trim().toLowerCase();
+            container.innerHTML = '';
+            const permits = Array.from(berthingPermits.values()).filter(permit => {
+                if (!query) return true;
+                return [
+                    permit.chinese_mmsi,
+                    permit.foreign_mmsi,
+                    permit.permit_number,
+                    permit.notes,
+                ].some(value =>
+                    String(value || '').toLowerCase().includes(query)
+                );
+            });
+            if (!permits.length) {
+                container.textContent = query
+                    ? '没有匹配的搭靠许可'
+                    : '暂无搭靠许可';
+                return;
+            }
+
+            permits.forEach(permit => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const title = document.createElement('span');
+                title.textContent = permit.permit_number || '未填写许可编号';
+                const status = document.createElement('span');
+                status.textContent = permit.is_active ? '已启用' : '已停用';
+                status.style.color = permit.is_active
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(title, status);
+
+                const pair = document.createElement('div');
+                pair.style.margin = '5px 0';
+                pair.style.color = 'var(--color-warning-yellow)';
+                pair.textContent =
+                    `${permit.chinese_mmsi} ↔ ${permit.foreign_mmsi}`;
+
+                const period = document.createElement('div');
+                period.className = 'fence-list-meta';
+                period.textContent =
+                    `有效期：${formatManagementDate(permit.valid_from)} ` +
+                    `至 ${formatManagementDate(permit.valid_until)}`;
+                item.append(heading, pair, period);
+
+                if (permit.notes) {
+                    const notes = document.createElement('div');
+                    notes.className = 'fence-list-meta';
+                    notes.textContent = `备注：${permit.notes}`;
+                    item.appendChild(notes);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editBerthingPermit(permit.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = permit.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleBerthingPermit(permit);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteBerthingPermit(permit);
+                actions.append(editButton, toggleButton, deleteButton);
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadBerthingPermits() {
+            try {
+                const payload = await fenceRequest(
+                    '/IllegalBerthing/permits/',
+                    {method: 'GET'}
+                );
+                berthingPermits.clear();
+                payload.results.forEach(permit =>
+                    berthingPermits.set(permit.id, permit)
+                );
+                renderBerthingPermits();
+            } catch (error) {
+                setManagementMessage(
+                    'berthing-message',
+                    `搭靠许可加载失败：${error.message}`,
+                    true
+                );
+                document.getElementById('berthing-list').textContent =
+                    '加载失败';
+            }
+        }
+
+        async function saveBerthingPermit() {
+            const permitId =
+                document.getElementById('berthing-permit-id').value;
+            try {
+                const chineseMmsi = document
+                    .getElementById('berthing-chinese-mmsi')
+                    .value.trim();
+                const foreignMmsi = document
+                    .getElementById('berthing-foreign-mmsi')
+                    .value.trim();
+                if (!/^(412|413|414)\d{6}$/.test(chineseMmsi)) {
+                    throw new Error(
+                        '中国籍船舶 MMSI 必须为412/413/414开头的9位数字'
+                    );
+                }
+                validateVesselMmsi(foreignMmsi, '外籍船舶 MMSI');
+                if (/^(412|413|414)/.test(foreignMmsi)) {
+                    throw new Error('外籍船舶 MMSI 不能使用中国 MID');
+                }
+                const validFrom = localInputToIso(
+                    'berthing-valid-from'
+                );
+                const validUntil = localInputToIso(
+                    'berthing-valid-until'
+                );
+                if (
+                    validFrom
+                    && validUntil
+                    && new Date(validUntil) <= new Date(validFrom)
+                ) {
+                    throw new Error('有效期结束必须晚于开始时间');
+                }
+                const data = {
+                    chinese_mmsi: chineseMmsi,
+                    foreign_mmsi: foreignMmsi,
+                    permit_number: document
+                        .getElementById('berthing-permit-number')
+                        .value.trim(),
+                    valid_from: validFrom,
+                    valid_until: validUntil,
+                    is_active:
+                        document.getElementById('berthing-active')
+                            .dataset.active === 'true',
+                    notes: document
+                        .getElementById('berthing-notes')
+                        .value.trim(),
+                };
+                const url = permitId
+                    ? `/IllegalBerthing/permits/${permitId}/`
+                    : '/IllegalBerthing/permits/';
+                const payload = await fenceRequest(url, {
+                    method: permitId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                setManagementMessage(
+                    'berthing-message',
+                    payload.message
+                );
+                await loadBerthingPermits();
+                editBerthingPermit(payload.result.id);
+            } catch (error) {
+                setManagementMessage(
+                    'berthing-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        async function toggleBerthingPermit(permit) {
+            try {
+                const payload = await fenceRequest(
+                    `/IllegalBerthing/permits/${permit.id}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            is_active: !permit.is_active
+                        }),
+                    }
+                );
+                setManagementMessage(
+                    'berthing-message',
+                    payload.message
+                );
+                await loadBerthingPermits();
+            } catch (error) {
+                setManagementMessage(
+                    'berthing-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        async function deleteBerthingPermit(permit) {
+            if (!confirm(
+                `确定删除搭靠许可“${permit.chinese_mmsi} / ` +
+                `${permit.foreign_mmsi}”吗？此操作不可撤销。`
+            )) return;
+            try {
+                const payload = await fenceRequest(
+                    `/IllegalBerthing/permits/${permit.id}/`,
+                    {method: 'DELETE'}
+                );
+                if (
+                    document.getElementById('berthing-permit-id').value
+                    === String(permit.id)
+                ) {
+                    resetBerthingPermitForm();
+                }
+                setManagementMessage(
+                    'berthing-message',
+                    payload.message
+                );
+                await loadBerthingPermits();
+            } catch (error) {
+                setManagementMessage(
+                    'berthing-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        function setTransferActiveState(isActive) {
+            setManagementActiveState(
+                'transfer-active',
+                '计划',
+                isActive
+            );
+        }
+
+        function resetTransferPlanForm() {
+            document.getElementById('transfer-plan-id').value = '';
+            document.getElementById('transfer-vessel-a').value = '';
+            document.getElementById('transfer-vessel-b').value = '';
+            document.getElementById('transfer-operation-name').value = '';
+            document.getElementById('transfer-approval-number').value = '';
+            document.getElementById('transfer-starts-at').value = '';
+            document.getElementById('transfer-ends-at').value = '';
+            document.getElementById('transfer-max-speed').value = '';
+            document.getElementById('transfer-notes').value = '';
+            setTransferActiveState(true);
+            setManagementMessage(
+                'transfer-message',
+                '已切换到新建模式'
+            );
+        }
+
+        function editTransferPlan(planId) {
+            const plan = transferOperationPlans.get(Number(planId));
+            if (!plan) return;
+            openManagementPanel(
+                'transfer-panel-container',
+                'btn-transfer'
+            );
+            document.getElementById('transfer-plan-id').value = plan.id;
+            document.getElementById('transfer-vessel-a').value =
+                plan.vessel_a_mmsi;
+            document.getElementById('transfer-vessel-b').value =
+                plan.vessel_b_mmsi;
+            document.getElementById('transfer-operation-name').value =
+                plan.operation_name || '';
+            document.getElementById('transfer-approval-number').value =
+                plan.approval_number || '';
+            document.getElementById('transfer-starts-at').value =
+                toDateTimeLocal(plan.starts_at);
+            document.getElementById('transfer-ends-at').value =
+                toDateTimeLocal(plan.ends_at);
+            document.getElementById('transfer-max-speed').value =
+                plan.max_speed_knots;
+            document.getElementById('transfer-notes').value =
+                plan.notes || '';
+            setTransferActiveState(plan.is_active);
+            setManagementMessage(
+                'transfer-message',
+                `正在编辑计划：${plan.operation_name || plan.id}`
+            );
+        }
+
+        function renderTransferPlans() {
+            const container = document.getElementById('transfer-list');
+            const query = document.getElementById('transfer-search')
+                .value.trim().toLowerCase();
+            container.innerHTML = '';
+            const plans = Array.from(
+                transferOperationPlans.values()
+            ).filter(plan => {
+                if (!query) return true;
+                return [
+                    plan.vessel_a_mmsi,
+                    plan.vessel_b_mmsi,
+                    plan.operation_name,
+                    plan.approval_number,
+                    plan.notes,
+                ].some(value =>
+                    String(value || '').toLowerCase().includes(query)
+                );
+            });
+            if (!plans.length) {
+                container.textContent = query
+                    ? '没有匹配的接驳作业计划'
+                    : '暂无接驳作业计划';
+                return;
+            }
+
+            plans.forEach(plan => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const title = document.createElement('span');
+                title.textContent =
+                    plan.operation_name || plan.approval_number || '未命名作业';
+                const status = document.createElement('span');
+                status.textContent = plan.is_active ? '已启用' : '已停用';
+                status.style.color = plan.is_active
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(title, status);
+
+                const pair = document.createElement('div');
+                pair.style.margin = '5px 0';
+                pair.style.color = 'var(--color-warning-yellow)';
+                pair.textContent =
+                    `${plan.vessel_a_mmsi} ↔ ${plan.vessel_b_mmsi}`;
+                const period = document.createElement('div');
+                period.className = 'fence-list-meta';
+                period.textContent =
+                    `作业时间：${formatManagementDate(plan.starts_at)} ` +
+                    `至 ${formatManagementDate(plan.ends_at)}`;
+                const speed = document.createElement('div');
+                speed.className = 'fence-list-meta';
+                speed.textContent =
+                    `最大规定航速：${plan.max_speed_knots} 节` +
+                    (plan.approval_number
+                        ? ` · ${plan.approval_number}`
+                        : '');
+                item.append(heading, pair, period, speed);
+
+                if (plan.notes) {
+                    const notes = document.createElement('div');
+                    notes.className = 'fence-list-meta';
+                    notes.textContent = `备注：${plan.notes}`;
+                    item.appendChild(notes);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editTransferPlan(plan.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = plan.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleTransferPlan(plan);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteTransferPlan(plan);
+                actions.append(editButton, toggleButton, deleteButton);
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadTransferPlans() {
+            try {
+                const payload = await fenceRequest(
+                    '/AbnormalTransfer/operations/',
+                    {method: 'GET'}
+                );
+                transferOperationPlans.clear();
+                payload.results.forEach(plan =>
+                    transferOperationPlans.set(plan.id, plan)
+                );
+                renderTransferPlans();
+            } catch (error) {
+                setManagementMessage(
+                    'transfer-message',
+                    `接驳计划加载失败：${error.message}`,
+                    true
+                );
+                document.getElementById('transfer-list').textContent =
+                    '加载失败';
+            }
+        }
+
+        async function saveTransferPlan() {
+            const planId =
+                document.getElementById('transfer-plan-id').value;
+            try {
+                const vesselA = document
+                    .getElementById('transfer-vessel-a')
+                    .value.trim();
+                const vesselB = document
+                    .getElementById('transfer-vessel-b')
+                    .value.trim();
+                validateVesselMmsi(vesselA, '船舶 A MMSI');
+                validateVesselMmsi(vesselB, '船舶 B MMSI');
+                if (vesselA === vesselB) {
+                    throw new Error('接驳双方不能是同一艘船');
+                }
+                const startsAt = localInputToIso(
+                    'transfer-starts-at',
+                    true
+                );
+                const endsAt = localInputToIso(
+                    'transfer-ends-at',
+                    true
+                );
+                if (new Date(endsAt) <= new Date(startsAt)) {
+                    throw new Error('批准结束时间必须晚于开始时间');
+                }
+                const maxSpeedText = document
+                    .getElementById('transfer-max-speed')
+                    .value.trim();
+                const maxSpeed = Number(maxSpeedText);
+                if (
+                    !maxSpeedText
+                    || !Number.isFinite(maxSpeed)
+                    || maxSpeed < 0
+                ) {
+                    throw new Error('最大规定航速必须是非负数字');
+                }
+                const data = {
+                    vessel_a_mmsi: vesselA,
+                    vessel_b_mmsi: vesselB,
+                    operation_name: document
+                        .getElementById('transfer-operation-name')
+                        .value.trim(),
+                    approval_number: document
+                        .getElementById('transfer-approval-number')
+                        .value.trim(),
+                    starts_at: startsAt,
+                    ends_at: endsAt,
+                    max_speed_knots: maxSpeed,
+                    is_active:
+                        document.getElementById('transfer-active')
+                            .dataset.active === 'true',
+                    notes: document
+                        .getElementById('transfer-notes')
+                        .value.trim(),
+                };
+                const url = planId
+                    ? `/AbnormalTransfer/operations/${planId}/`
+                    : '/AbnormalTransfer/operations/';
+                const payload = await fenceRequest(url, {
+                    method: planId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                setManagementMessage(
+                    'transfer-message',
+                    payload.message
+                );
+                await loadTransferPlans();
+                editTransferPlan(payload.result.id);
+            } catch (error) {
+                setManagementMessage(
+                    'transfer-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        async function toggleTransferPlan(plan) {
+            try {
+                const payload = await fenceRequest(
+                    `/AbnormalTransfer/operations/${plan.id}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            is_active: !plan.is_active
+                        }),
+                    }
+                );
+                setManagementMessage(
+                    'transfer-message',
+                    payload.message
+                );
+                await loadTransferPlans();
+            } catch (error) {
+                setManagementMessage(
+                    'transfer-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        async function deleteTransferPlan(plan) {
+            const displayName =
+                plan.operation_name
+                || `${plan.vessel_a_mmsi} / ${plan.vessel_b_mmsi}`;
+            if (!confirm(
+                `确定删除接驳作业计划“${displayName}”吗？` +
+                '此操作不可撤销。'
+            )) return;
+            try {
+                const payload = await fenceRequest(
+                    `/AbnormalTransfer/operations/${plan.id}/`,
+                    {method: 'DELETE'}
+                );
+                if (
+                    document.getElementById('transfer-plan-id').value
+                    === String(plan.id)
+                ) {
+                    resetTransferPlanForm();
+                }
+                setManagementMessage(
+                    'transfer-message',
+                    payload.message
+                );
+                await loadTransferPlans();
+            } catch (error) {
+                setManagementMessage(
+                    'transfer-message',
+                    error.message,
+                    true
+                );
+            }
+        }
+
+        const SMUGGLING_ZONE_COLORS = {
+            hong_kong_origin: '#00E5FF',
+            customs_port: '#48BB78',
+            non_customs_landing: '#E53E3E',
+        };
+
+        function switchSmugglingManagementTab(tabName) {
+            const isZone = tabName === 'zone';
+            document.getElementById('smuggling-zone-tab')
+                .classList.toggle('active', isZone);
+            document.getElementById('smuggling-permit-tab')
+                .classList.toggle('active', !isZone);
+            document.getElementById('smuggling-zone-tab')
+                .setAttribute('aria-selected', String(isZone));
+            document.getElementById('smuggling-permit-tab')
+                .setAttribute('aria-selected', String(!isZone));
+            document.getElementById('smuggling-zone-section')
+                .classList.toggle('active', isZone);
+            document.getElementById('smuggling-permit-section')
+                .classList.toggle('active', !isZone);
+        }
+
+        function setSmugglingZoneActiveState(isActive) {
+            setManagementActiveState(
+                'smuggling-zone-active',
+                '区域',
+                isActive
+            );
+        }
+
+        function setSmugglingPermitActiveState(isActive) {
+            setManagementActiveState(
+                'smuggling-permit-active',
+                '许可',
+                isActive
+            );
+        }
+
+        function setSmugglingZoneMessage(message, isError = false) {
+            setManagementMessage(
+                'smuggling-zone-message',
+                message,
+                isError
+            );
+        }
+
+        function setSmugglingPermitMessage(message, isError = false) {
+            setManagementMessage(
+                'smuggling-permit-message',
+                message,
+                isError
+            );
+        }
+
+        function clearSmugglingZoneDraft() {
+            if (smugglingZoneMouseTool) {
+                smugglingZoneMouseTool.close(true);
+                smugglingZoneMouseTool = null;
+            }
+            if (smugglingZoneDraftPolygon) {
+                smugglingZoneDraftPolygon.setMap(null);
+                smugglingZoneDraftPolygon = null;
+            }
+        }
+
+        function resetSmugglingZoneForm() {
+            document.getElementById('smuggling-zone-id').value = '';
+            document.getElementById('smuggling-zone-name').value = '';
+            document.getElementById('smuggling-zone-type').value =
+                'hong_kong_origin';
+            document.getElementById('smuggling-zone-buffer').value = '0';
+            document.getElementById('smuggling-zone-reference').value = '';
+            document.getElementById('smuggling-zone-vertices').value = '';
+            document.getElementById('smuggling-zone-notes').value = '';
+            setSmugglingZoneActiveState(true);
+            clearSmugglingZoneDraft();
+            setSmugglingZoneMessage('已切换到新建区域模式');
+        }
+
+        function resetSmugglingPermitForm() {
+            document.getElementById('smuggling-permit-id').value = '';
+            document.getElementById('smuggling-permit-mmsi').value = '';
+            document.getElementById('smuggling-permit-number').value = '';
+            document.getElementById('smuggling-permit-origin').value = '';
+            document.getElementById('smuggling-permit-destination').value =
+                '';
+            document.getElementById('smuggling-permit-valid-from').value =
+                '';
+            document.getElementById('smuggling-permit-valid-until').value =
+                '';
+            document.getElementById('smuggling-permit-notes').value = '';
+            setSmugglingPermitActiveState(true);
+            setSmugglingPermitMessage('已切换到新建许可模式');
+        }
+
+        function editSmugglingZone(zoneId) {
+            const zone = smugglingZones.get(Number(zoneId));
+            if (!zone) return;
+            openManagementPanel(
+                'smuggling-panel-container',
+                'btn-smuggling'
+            );
+            switchSmugglingManagementTab('zone');
+            clearSmugglingZoneDraft();
+            document.getElementById('smuggling-zone-id').value = zone.id;
+            document.getElementById('smuggling-zone-name').value =
+                zone.name;
+            document.getElementById('smuggling-zone-type').value =
+                zone.zone_type;
+            document.getElementById('smuggling-zone-buffer').value =
+                zone.buffer_metres;
+            document.getElementById('smuggling-zone-reference').value =
+                zone.legal_reference || '';
+            document.getElementById('smuggling-zone-vertices').value =
+                formatFenceVertices(zone.vertices);
+            document.getElementById('smuggling-zone-notes').value =
+                zone.notes || '';
+            setSmugglingZoneActiveState(zone.is_active);
+            setSmugglingZoneMessage(`正在编辑区域：${zone.name}`);
+        }
+
+        function viewSmugglingZone(zoneId) {
+            const polygon = smugglingZonePolygons.get(Number(zoneId));
+            if (!polygon || !map) return;
+            const zone = smugglingZones.get(Number(zoneId));
+            map.setFitView([polygon], true, [100, 100, 100, 100], 16);
+            polygon.setOptions({
+                strokeColor: '#FFFFFF',
+                strokeWeight: 5,
+                fillOpacity: 0.38,
+            });
+            window.setTimeout(() => {
+                if (!smugglingZonePolygons.has(Number(zoneId))) return;
+                polygon.setOptions({
+                    strokeColor:
+                        SMUGGLING_ZONE_COLORS[zone.zone_type] || '#007BFF',
+                    strokeWeight: 2,
+                    fillOpacity: zone.is_active ? 0.18 : 0.07,
+                });
+            }, 1800);
+        }
+
+        function renderSmugglingZonePolygons() {
+            smugglingZonePolygons.forEach(polygon => polygon.setMap(null));
+            smugglingZonePolygons.clear();
+            if (!map) return;
+            smugglingZones.forEach(zone => {
+                const color =
+                    SMUGGLING_ZONE_COLORS[zone.zone_type] || '#007BFF';
+                const polygon = new AMap.Polygon({
+                    path: zone.vertices,
+                    strokeColor: zone.is_active ? color : '#718096',
+                    strokeWeight: 2,
+                    strokeOpacity: 0.95,
+                    fillColor: color,
+                    fillOpacity: zone.is_active ? 0.18 : 0.07,
+                    zIndex: 38,
+                });
+                polygon.setMap(map);
+                polygon.on('click', () => editSmugglingZone(zone.id));
+                smugglingZonePolygons.set(zone.id, polygon);
+            });
+        }
+
+        function renderSmugglingZones() {
+            const container =
+                document.getElementById('smuggling-zone-list');
+            const query = document.getElementById('smuggling-zone-search')
+                .value.trim().toLowerCase();
+            container.innerHTML = '';
+            const zones = Array.from(smugglingZones.values()).filter(zone => {
+                if (!query) return true;
+                return [
+                    zone.name,
+                    zone.zone_type_label,
+                    zone.legal_reference,
+                    zone.notes,
+                ].some(value =>
+                    String(value || '').toLowerCase().includes(query)
+                );
+            });
+            if (!zones.length) {
+                container.textContent = query
+                    ? '没有匹配的研判区域'
+                    : '暂无研判区域';
+                return;
+            }
+            zones.forEach(zone => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const name = document.createElement('span');
+                const marker = document.createElement('span');
+                marker.className = 'zone-type-marker';
+                marker.style.backgroundColor =
+                    SMUGGLING_ZONE_COLORS[zone.zone_type] || '#007BFF';
+                name.append(marker, document.createTextNode(zone.name));
+                const status = document.createElement('span');
+                status.textContent = zone.is_active ? '已启用' : '已停用';
+                status.style.color = zone.is_active
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(name, status);
+
+                const meta = document.createElement('div');
+                meta.className = 'fence-list-meta';
+                meta.textContent =
+                    `${zone.zone_type_label} · ${zone.vertices.length} 个顶点` +
+                    ` · 外围 ${zone.buffer_metres} 米`;
+                item.append(heading, meta);
+
+                if (zone.legal_reference) {
+                    const reference = document.createElement('div');
+                    reference.className = 'fence-list-meta';
+                    reference.textContent =
+                        `依据：${zone.legal_reference}`;
+                    item.appendChild(reference);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const viewButton = document.createElement('button');
+                viewButton.className = 'fence-button';
+                viewButton.textContent = '查看';
+                viewButton.onclick = () => viewSmugglingZone(zone.id);
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editSmugglingZone(zone.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = zone.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleSmugglingZone(zone);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteSmugglingZone(zone);
+                actions.append(
+                    viewButton,
+                    editButton,
+                    toggleButton,
+                    deleteButton
+                );
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        function refreshSmugglingZoneSelectors() {
+            const origin =
+                document.getElementById('smuggling-permit-origin');
+            const destination =
+                document.getElementById('smuggling-permit-destination');
+            const selectedOrigin = origin.value;
+            const selectedDestination = destination.value;
+            origin.innerHTML = '';
+            destination.innerHTML = '';
+            origin.add(new Option('不限香港起航区', ''));
+            destination.add(new Option('不限非设关靠泊区', ''));
+            smugglingZones.forEach(zone => {
+                const label = zone.is_active
+                    ? zone.name
+                    : `${zone.name}（已停用）`;
+                if (zone.zone_type === 'hong_kong_origin') {
+                    origin.add(new Option(label, String(zone.id)));
+                } else if (zone.zone_type === 'non_customs_landing') {
+                    destination.add(new Option(label, String(zone.id)));
+                }
+            });
+            if ([...origin.options].some(
+                option => option.value === selectedOrigin
+            )) {
+                origin.value = selectedOrigin;
+            }
+            if ([...destination.options].some(
+                option => option.value === selectedDestination
+            )) {
+                destination.value = selectedDestination;
+            }
+        }
+
+        async function loadSmugglingZones() {
+            try {
+                const payload = await fenceRequest(
+                    '/Smuggling/zones/',
+                    {method: 'GET'}
+                );
+                smugglingZones.clear();
+                payload.results.forEach(zone =>
+                    smugglingZones.set(zone.id, zone)
+                );
+                renderSmugglingZones();
+                renderSmugglingZonePolygons();
+                refreshSmugglingZoneSelectors();
+            } catch (error) {
+                setSmugglingZoneMessage(
+                    `区域加载失败：${error.message}`,
+                    true
+                );
+                document.getElementById('smuggling-zone-list').textContent =
+                    '加载失败';
+            }
+        }
+
+        function parseSmugglingZoneVertices() {
+            try {
+                return parseFenceVertices(
+                    document.getElementById('smuggling-zone-vertices').value
+                );
+            } catch (error) {
+                throw new Error(
+                    error.message.replaceAll('电子围栏', '研判区域')
+                );
+            }
+        }
+
+        async function saveSmugglingZone() {
+            const zoneId =
+                document.getElementById('smuggling-zone-id').value;
+            try {
+                const bufferText = document
+                    .getElementById('smuggling-zone-buffer')
+                    .value.trim();
+                const bufferMetres = Number(bufferText);
+                if (
+                    !Number.isFinite(bufferMetres)
+                    || bufferMetres < 0
+                    || bufferMetres > 100000
+                ) {
+                    throw new Error(
+                        '外围预警距离必须在 0 至 100000 米之间'
+                    );
+                }
+                const data = {
+                    name: document.getElementById('smuggling-zone-name')
+                        .value.trim(),
+                    zone_type:
+                        document.getElementById('smuggling-zone-type').value,
+                    vertices: parseSmugglingZoneVertices(),
+                    buffer_metres: bufferMetres,
+                    legal_reference: document
+                        .getElementById('smuggling-zone-reference')
+                        .value.trim(),
+                    is_active:
+                        document.getElementById('smuggling-zone-active')
+                            .dataset.active === 'true',
+                    notes: document.getElementById('smuggling-zone-notes')
+                        .value.trim(),
+                };
+                if (!data.name) throw new Error('请输入区域名称');
+                const url = zoneId
+                    ? `/Smuggling/zones/${zoneId}/`
+                    : '/Smuggling/zones/';
+                const payload = await fenceRequest(url, {
+                    method: zoneId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                clearSmugglingZoneDraft();
+                await loadSmugglingZones();
+                editSmugglingZone(payload.result.id);
+                setSmugglingZoneMessage(
+                    zoneId ? '区域已更新' : '区域已创建'
+                );
+            } catch (error) {
+                setSmugglingZoneMessage(error.message, true);
+            }
+        }
+
+        async function toggleSmugglingZone(zone) {
+            try {
+                await fenceRequest(`/Smuggling/zones/${zone.id}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({is_active: !zone.is_active}),
+                });
+                await loadSmugglingZones();
+                setSmugglingZoneMessage(
+                    `区域已${zone.is_active ? '停用' : '启用'}`
+                );
+            } catch (error) {
+                setSmugglingZoneMessage(error.message, true);
+            }
+        }
+
+        async function deleteSmugglingZone(zone) {
+            if (!confirm(
+                `确定删除研判区域“${zone.name}”吗？` +
+                '关联许可将保留，但该区域条件会被清空。'
+            )) return;
+            try {
+                await fenceRequest(`/Smuggling/zones/${zone.id}/`, {
+                    method: 'DELETE',
+                });
+                if (
+                    document.getElementById('smuggling-zone-id').value
+                    === String(zone.id)
+                ) {
+                    resetSmugglingZoneForm();
+                }
+                await loadSmugglingZones();
+                await loadSmugglingPermits();
+                setSmugglingZoneMessage('区域已删除');
+            } catch (error) {
+                setSmugglingZoneMessage(error.message, true);
+            }
+        }
+
+        function startDrawingSmugglingZone() {
+            if (!map) {
+                setSmugglingZoneMessage(
+                    '地图尚未加载完成，请稍后重试',
+                    true
+                );
+                return;
+            }
+            openManagementPanel(
+                'smuggling-panel-container',
+                'btn-smuggling'
+            );
+            switchSmugglingManagementTab('zone');
+            clearSmugglingZoneDraft();
+            smugglingZoneMouseTool = new AMap.MouseTool(map);
+            smugglingZoneMouseTool.polygon({
+                strokeColor: '#00E5FF',
+                fillColor: '#00E5FF',
+                fillOpacity: 0.24,
+                strokeWeight: 2,
+                strokeStyle: 'dashed',
+            });
+            AMap.Event.addListener(
+                smugglingZoneMouseTool,
+                'draw',
+                event => {
+                    const vertices = event.obj.getPath().map(
+                        point => [point.lng, point.lat]
+                    );
+                    smugglingZoneMouseTool.close(true);
+                    smugglingZoneMouseTool = null;
+                    document.getElementById(
+                        'smuggling-zone-vertices'
+                    ).value = formatFenceVertices(vertices);
+                    const zoneType = document
+                        .getElementById('smuggling-zone-type').value;
+                    const color =
+                        SMUGGLING_ZONE_COLORS[zoneType] || '#007BFF';
+                    smugglingZoneDraftPolygon = new AMap.Polygon({
+                        path: vertices,
+                        strokeColor: color,
+                        fillColor: color,
+                        fillOpacity: 0.25,
+                        strokeWeight: 3,
+                        strokeStyle: 'dashed',
+                        zIndex: 45,
+                        map: map,
+                    });
+                    setSmugglingZoneMessage(
+                        `已获取 ${vertices.length} 个顶点，请填写名称后保存`
+                    );
+                }
+            );
+            setSmugglingZoneMessage(
+                '请在地图上逐点单击，双击最后一个点结束绘制'
+            );
+        }
+
+        function editSmugglingPermit(permitId) {
+            const permit = smugglingVoyagePermits.get(Number(permitId));
+            if (!permit) return;
+            openManagementPanel(
+                'smuggling-panel-container',
+                'btn-smuggling'
+            );
+            switchSmugglingManagementTab('permit');
+            document.getElementById('smuggling-permit-id').value =
+                permit.id;
+            document.getElementById('smuggling-permit-mmsi').value =
+                permit.mmsi;
+            document.getElementById('smuggling-permit-number').value =
+                permit.permit_number;
+            document.getElementById('smuggling-permit-origin').value =
+                permit.origin_zone_id == null
+                    ? ''
+                    : String(permit.origin_zone_id);
+            document.getElementById('smuggling-permit-destination').value =
+                permit.destination_zone_id == null
+                    ? ''
+                    : String(permit.destination_zone_id);
+            document.getElementById('smuggling-permit-valid-from').value =
+                toDateTimeLocal(permit.valid_from);
+            document.getElementById('smuggling-permit-valid-until').value =
+                toDateTimeLocal(permit.valid_until);
+            document.getElementById('smuggling-permit-notes').value =
+                permit.notes || '';
+            setSmugglingPermitActiveState(permit.is_active);
+            setSmugglingPermitMessage(
+                `正在编辑许可：${permit.permit_number}`
+            );
+        }
+
+        function renderSmugglingPermits() {
+            const container =
+                document.getElementById('smuggling-permit-list');
+            const query = document
+                .getElementById('smuggling-permit-search')
+                .value.trim().toLowerCase();
+            container.innerHTML = '';
+            const permits = Array.from(
+                smugglingVoyagePermits.values()
+            ).filter(permit => {
+                if (!query) return true;
+                return [
+                    permit.mmsi,
+                    permit.permit_number,
+                    permit.origin_zone_name,
+                    permit.destination_zone_name,
+                    permit.notes,
+                ].some(value =>
+                    String(value || '').toLowerCase().includes(query)
+                );
+            });
+            if (!permits.length) {
+                container.textContent = query
+                    ? '没有匹配的航次许可'
+                    : '暂无航次许可';
+                return;
+            }
+            permits.forEach(permit => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const title = document.createElement('span');
+                title.textContent = permit.permit_number;
+                const status = document.createElement('span');
+                status.textContent =
+                    permit.is_active ? '已启用' : '已停用';
+                status.style.color = permit.is_active
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(title, status);
+
+                const vessel = document.createElement('div');
+                vessel.style.margin = '5px 0';
+                vessel.style.color = 'var(--color-warning-yellow)';
+                vessel.textContent = `MMSI：${permit.mmsi}`;
+                const route = document.createElement('div');
+                route.className = 'fence-list-meta';
+                route.textContent =
+                    `${permit.origin_zone_name || '任意香港起航区'} → ` +
+                    `${permit.destination_zone_name || '任意非设关靠泊区'}`;
+                const period = document.createElement('div');
+                period.className = 'fence-list-meta';
+                period.textContent =
+                    `有效期：${formatManagementDate(permit.valid_from)} 至 ` +
+                    formatManagementDate(permit.valid_until);
+                item.append(heading, vessel, route, period);
+
+                if (permit.notes) {
+                    const notes = document.createElement('div');
+                    notes.className = 'fence-list-meta';
+                    notes.textContent = `备注：${permit.notes}`;
+                    item.appendChild(notes);
+                }
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () =>
+                    editSmugglingPermit(permit.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent =
+                    permit.is_active ? '停用' : '启用';
+                toggleButton.onclick = () =>
+                    toggleSmugglingPermit(permit);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () =>
+                    deleteSmugglingPermit(permit);
+                actions.append(editButton, toggleButton, deleteButton);
+                item.appendChild(actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadSmugglingPermits() {
+            try {
+                const payload = await fenceRequest(
+                    '/Smuggling/permits/',
+                    {method: 'GET'}
+                );
+                smugglingVoyagePermits.clear();
+                payload.results.forEach(permit =>
+                    smugglingVoyagePermits.set(permit.id, permit)
+                );
+                renderSmugglingPermits();
+            } catch (error) {
+                setSmugglingPermitMessage(
+                    `许可加载失败：${error.message}`,
+                    true
+                );
+                document.getElementById(
+                    'smuggling-permit-list'
+                ).textContent = '加载失败';
+            }
+        }
+
+        function smugglingDateInputToIso(elementId, label) {
+            const value = document.getElementById(elementId).value;
+            if (!value) throw new Error(`请填写${label}`);
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                throw new Error(`${label}格式不正确`);
+            }
+            return date.toISOString();
+        }
+
+        async function saveSmugglingPermit() {
+            const permitId =
+                document.getElementById('smuggling-permit-id').value;
+            try {
+                const mmsi = document
+                    .getElementById('smuggling-permit-mmsi')
+                    .value.trim();
+                if (!/^\d{9}$/.test(mmsi)) {
+                    throw new Error('MMSI 必须是9位数字');
+                }
+                const permitNumber = document
+                    .getElementById('smuggling-permit-number')
+                    .value.trim();
+                if (!permitNumber) throw new Error('请输入许可/报告编号');
+                const validFrom = smugglingDateInputToIso(
+                    'smuggling-permit-valid-from',
+                    '有效期开始'
+                );
+                const validUntil = smugglingDateInputToIso(
+                    'smuggling-permit-valid-until',
+                    '有效期结束'
+                );
+                if (new Date(validUntil) <= new Date(validFrom)) {
+                    throw new Error('有效期结束必须晚于开始时间');
+                }
+                const originValue =
+                    document.getElementById('smuggling-permit-origin')
+                        .value;
+                const destinationValue = document
+                    .getElementById('smuggling-permit-destination').value;
+                const data = {
+                    mmsi,
+                    permit_number: permitNumber,
+                    origin_zone_id: originValue
+                        ? Number(originValue)
+                        : null,
+                    destination_zone_id: destinationValue
+                        ? Number(destinationValue)
+                        : null,
+                    valid_from: validFrom,
+                    valid_until: validUntil,
+                    is_active:
+                        document.getElementById(
+                            'smuggling-permit-active'
+                        ).dataset.active === 'true',
+                    notes: document
+                        .getElementById('smuggling-permit-notes')
+                        .value.trim(),
+                };
+                const url = permitId
+                    ? `/Smuggling/permits/${permitId}/`
+                    : '/Smuggling/permits/';
+                const payload = await fenceRequest(url, {
+                    method: permitId ? 'PUT' : 'POST',
+                    body: JSON.stringify(data),
+                });
+                await loadSmugglingPermits();
+                editSmugglingPermit(payload.result.id);
+                setSmugglingPermitMessage(
+                    permitId ? '许可已更新' : '许可已创建'
+                );
+            } catch (error) {
+                setSmugglingPermitMessage(error.message, true);
+            }
+        }
+
+        async function toggleSmugglingPermit(permit) {
+            try {
+                await fenceRequest(`/Smuggling/permits/${permit.id}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        is_active: !permit.is_active
+                    }),
+                });
+                await loadSmugglingPermits();
+                setSmugglingPermitMessage(
+                    `许可已${permit.is_active ? '停用' : '启用'}`
+                );
+            } catch (error) {
+                setSmugglingPermitMessage(error.message, true);
+            }
+        }
+
+        async function deleteSmugglingPermit(permit) {
+            if (!confirm(
+                `确定删除航次许可“${permit.permit_number}”吗？` +
+                '此操作不可撤销。'
+            )) return;
+            try {
+                await fenceRequest(`/Smuggling/permits/${permit.id}/`, {
+                    method: 'DELETE',
+                });
+                if (
+                    document.getElementById('smuggling-permit-id').value
+                    === String(permit.id)
+                ) {
+                    resetSmugglingPermitForm();
+                }
+                await loadSmugglingPermits();
+                setSmugglingPermitMessage('许可已删除');
+            } catch (error) {
+                setSmugglingPermitMessage(error.message, true);
+            }
+        }
+
+        function startDrawingFence() {
+            if (!map) {
+                setFenceMessage('地图尚未加载完成，请稍后重试', true);
+                return;
+            }
+            openFencePanel();
             const mouseTool = new AMap.MouseTool(map);
             mouseTool.polygon({
                 strokeColor: '#007BFF',
-                fillColor: 'rgba(0, 123, 255, 0.3)',
+                fillColor: '#007BFF',
+                fillOpacity: 0.25,
                 strokeWeight: 2,
                 strokeStyle: 'dashed',
             });
             AMap.Event.addListener(mouseTool, 'draw', (event) => {
-                mouseTool.close(true); 
-                console.log('Fence Drawn.');
+                const vertices = event.obj.getPath().map(point => [point.lng, point.lat]);
+                mouseTool.close(true);
+                document.getElementById('fence-vertices').value = formatFenceVertices(vertices);
+                setFenceMessage(`已获取 ${vertices.length} 个顶点，请填写名称后保存`);
             });
-            alert('请在地图上点击绘制多边形围栏...');
+            setFenceMessage('请在地图上逐点单击，双击最后一个点结束绘制');
         }
 
         // 更改选中船舶的颜色
-        function selectShip(mmsi) {
+        function selectShip(mmsi, highlightType = 'normal') {
+            const normalizedMmsi = String(mmsi);
+
             // 1. 如果之前有选中的船，将其图标恢复原样
             if (selectedShipMmsi && shipMarkersMap.has(selectedShipMmsi)) {
                 const prevMarker = shipMarkersMap.get(selectedShipMmsi);
@@ -1550,34 +4833,49 @@
             }
 
             // 2. 更新选中的 ID
-            selectedShipMmsi = mmsi;
+            selectedShipMmsi = normalizedMmsi;
+            selectedShipHighlightType = highlightType;
 
-            // 3. 将当前选中的船图标变绿
-            if (shipMarkersMap.has(mmsi)) {
-                const currentMarker = shipMarkersMap.get(mmsi);
-                refreshMarkerIcon(currentMarker, true);
+            // 3. 普通选择使用绿色，违法事件检测结果使用红色
+            if (shipMarkersMap.has(normalizedMmsi)) {
+                const currentMarker = shipMarkersMap.get(normalizedMmsi);
+                refreshMarkerIcon(currentMarker, true, selectedShipHighlightType);
             }
+
+            // 4. 同步侧边栏的选中样式
+            document.querySelectorAll('#ship-list .ship-item').forEach(item => {
+                const isSelected = item.dataset.mmsi === normalizedMmsi;
+                item.classList.toggle('active', isSelected);
+                item.classList.toggle(
+                    'violation-selected',
+                    isSelected && selectedShipHighlightType === 'violation'
+                );
+            });
         }
 
         // 辅助函数：根据选中状态刷新图标
-        function refreshMarkerIcon(marker, isActive) {
+        function refreshMarkerIcon(marker, isActive, highlightType = 'normal') {
             const currentZoom = map.getZoom();
             const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
-            const ship = marker.getExtData();
             
-            let iconUrl;
-            if (isTriangleMode) {
-                // 三角形模式下：选中使用绿色三角形，未选中使用黄色三角形
-                iconUrl = isActive ? ICON_TRIANGLE_ACTIVE_URL : ICON_TRIANGLE_URL;
-            } else {
-                // 圆点模式保持不变（已经是绿色）
-                iconUrl = ICON_CIRCLE_URL;
+            let iconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
+            if (isActive && highlightType === 'violation') {
+                iconUrl = isTriangleMode
+                    ? ICON_TRIANGLE_VIOLATION_URL
+                    : ICON_CIRCLE_VIOLATION_URL;
+            } else if (isActive) {
+                iconUrl = isTriangleMode
+                    ? ICON_TRIANGLE_ACTIVE_URL
+                    : ICON_CIRCLE_ACTIVE_URL;
             }
+            const iconSize = isActive
+                ? (isTriangleMode ? 38 : 24)
+                : (isTriangleMode ? 30 : 15);
 
             marker.setIcon(new AMap.Icon({
-                size: new AMap.Size(isTriangleMode ? 30 : 20, isTriangleMode ? 30 : 20),
+                size: new AMap.Size(iconSize, iconSize),
                 image: iconUrl,
-                imageSize: new AMap.Size(isTriangleMode ? 30 : 20, isTriangleMode ? 30 : 20)
+                imageSize: new AMap.Size(iconSize, iconSize)
             }));
         }
 
@@ -1585,6 +4883,8 @@
         // 【修改】页面加载完成后初始化地图和功能选项的开关状态
         window.onload = function() {
             initMap();
+            setupBaseMapSelector();
+            setupInfoLayerButtons();
             setupInitialToggles();
             startCleanupTimer(); // 启动清理机制
             // initWebSocket() 在 initMap() 中调用，用于建立实时连接
