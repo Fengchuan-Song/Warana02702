@@ -4,3 +4,7 @@ daphne WanAna02702.asgi:application
 python manage.py ais_worker
 
 python manage.py detection_supervisor
+
+python manage.py camera_stream_worker
+
+python manage.py overload_stream_worker --camera-key harbor-01

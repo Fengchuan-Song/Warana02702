@@ -1,9 +1,37 @@
 from django.contrib import admin
 from django.urls import path
-from .views import current_typhoons, guangdong_marine_weather, index
+from .views import (
+    camera_collection,
+    camera_configuration,
+    camera_detail,
+    camera_video,
+    current_typhoons,
+    guangdong_marine_weather,
+    index,
+)
 
 urlpatterns = [
     path("", index, name='index'),
+    path(
+        "api/cameras/",
+        camera_collection,
+        name="camera_collection",
+    ),
+    path(
+        "api/cameras/<slug:camera_key>/",
+        camera_detail,
+        name="camera_detail",
+    ),
+    path(
+        "api/cameras/harbor-01/video/",
+        camera_video,
+        name="camera_video",
+    ),
+    path(
+        "api/cameras/harbor-01/config/",
+        camera_configuration,
+        name="camera_configuration",
+    ),
     path(
         "api/typhoons/current/",
         current_typhoons,

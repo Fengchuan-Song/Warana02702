@@ -184,6 +184,34 @@ CACHES = {
 # 设置缓存过期时间（可选，默认 5 分钟）
 CACHE_TTL = 60 * 5
 
+# 模拟摄像头实时推流。独立 management command 会持续循环 Data/Video
+# 中的全部视频；是否存在前端观看者不会影响推流进程的启停。
+CAMERA_STREAM = {
+    "camera_key": "harbor-01",
+    "video_directory": BASE_DIR / "Data" / "Video",
+    # 0 表示保持每个源视频的原始帧率。
+    "fps": 0,
+    "max_width": 1280,
+    # FFmpeg MJPEG 的 q:v 参数，数值越小质量越高、网络流量越大。
+    "jpeg_quality": 5,
+    # 留空时从系统 PATH 查找 ffmpeg。
+    "ffmpeg_executable": "",
+}
+
+# 船舶超载视觉模型：订阅模拟摄像头流，但不会影响视频推流进程。
+OVERLOAD_VIDEO_DETECTION = {
+    "camera_key": "harbor-01",
+    "weights": BASE_DIR / "Overload" / "weights" / "best.pt",
+    "confidence": 0.5,
+    # 原超载模型无检测框时，用通用船舶模型区分“无船”和“有船无载重线”。
+    "vessel_weights": BASE_DIR / "Overload" / "weights" / "yolov8n.pt",
+    "vessel_confidence": 0.25,
+    # 视频保持源 FPS；模型按此上限抽帧推理，避免阻塞实时流。
+    "inference_fps": 2,
+    "confirmation_frames": 3,
+    "device": "0",
+}
+
 # 异常停泊检测参数。监控区域使用 (最小经度, 最小纬度, 最大经度, 最大纬度)。
 ABNORMAL_PARKING = {
     "analysis_window_minutes": 120,

@@ -14,6 +14,9 @@ from AISData.normalization import normalise_ais_snapshot
 logger = logging.getLogger(__name__)
 
 DETECTION_CACHE_PREFIX = "detection_result:"
+EXTERNAL_DETECTION_FEATURES = {
+    "detect-overload",
+}
 
 # feature_id must match the checkbox names used by Demo_v10.html.
 # Dotted paths keep algorithm modules lazy: Daphne and ais_worker can import
@@ -78,7 +81,7 @@ def get_detection_result(feature_id):
 def get_cached_detection_results():
     """Return only detector results that have actually been computed."""
     results = {}
-    for feature_id in DETECTORS:
+    for feature_id in set(DETECTORS) | EXTERNAL_DETECTION_FEATURES:
         payload = cache.get(detection_cache_key(feature_id))
         if payload is not None:
             results[feature_id] = payload

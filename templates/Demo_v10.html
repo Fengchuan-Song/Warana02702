@@ -375,6 +375,158 @@
             position: absolute; top: -5px; right: -5px; background-color: var(--color-alert-red); color: white; border-radius: 50%; padding: 2px 5px; font-size: 0.7rem; min-width: 20px; text-align: center; line-height: 1;
         }
 
+        /* ==================== 地图摄像头与视频弹窗 ==================== */
+        .camera-marker-button {
+            position: relative;
+            width: 46px;
+            height: 46px;
+            border: 2px solid #63B3ED;
+            border-radius: 50%;
+            background: rgba(12, 16, 27, 0.94);
+            color: white;
+            box-shadow: 0 0 0 5px rgba(0, 123, 255, 0.2), 0 4px 14px rgba(0, 0, 0, 0.65);
+            cursor: pointer;
+            font-size: 23px;
+            line-height: 40px;
+            text-align: center;
+            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .camera-marker-button:hover,
+        .camera-marker-button:focus-visible {
+            border-color: white;
+            box-shadow: 0 0 0 7px rgba(0, 123, 255, 0.32), 0 5px 18px rgba(0, 0, 0, 0.72);
+            outline: none;
+            transform: translateY(-2px) scale(1.06);
+        }
+
+        .camera-marker-label {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            padding: 3px 7px;
+            border-radius: 3px;
+            background: rgba(12, 16, 27, 0.9);
+            color: white;
+            font-size: 12px;
+            line-height: 1.4;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+
+        .camera-video-modal-content {
+            width: min(900px, calc(100vw - 40px));
+            max-width: 900px;
+            min-width: 0;
+            max-height: calc(100vh - 40px);
+        }
+
+        .camera-video-player {
+            display: block;
+            width: 100%;
+            max-height: 65vh;
+            border-radius: 5px;
+            background: black;
+        }
+
+        .camera-stream-stage {
+            position: relative;
+            display: flex;
+            min-height: 320px;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 5px;
+            background: black;
+        }
+
+        .camera-stream-stage .camera-video-player {
+            max-height: 65vh;
+            object-fit: contain;
+        }
+
+        .camera-stream-stage .camera-video-player[hidden] {
+            display: none;
+        }
+
+        .camera-stream-status {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            padding: 5px 9px;
+            border-radius: 4px;
+            background: rgba(12, 16, 27, 0.78);
+            color: white;
+            font-size: 0.78rem;
+            pointer-events: none;
+        }
+
+        .camera-stream-status.error {
+            color: #FED7D7;
+            background: rgba(229, 62, 62, 0.78);
+        }
+
+        .camera-video-meta {
+            margin: -5px 35px 12px 0;
+            font-size: 0.9rem;
+        }
+
+        .camera-coordinate-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .camera-config-help {
+            margin: 6px 0 12px;
+            color: var(--color-text-light);
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+
+        #camera-config-message {
+            min-height: 20px;
+            margin-top: 8px;
+            font-size: 0.85rem;
+            line-height: 1.45;
+        }
+
+        #camera-map-pick.active {
+            border-color: var(--color-warning-yellow);
+            background: rgba(255, 193, 7, 0.28);
+            color: white;
+        }
+
+        .camera-list-item {
+            margin-bottom: 8px;
+            padding: 9px;
+            border: 1px solid rgba(160, 174, 192, 0.2);
+            border-radius: 5px;
+            background: rgba(12, 16, 27, 0.65);
+            cursor: pointer;
+        }
+
+        .camera-list-item:hover,
+        .camera-list-item.active {
+            border-color: var(--color-primary);
+            background: rgba(0, 123, 255, 0.16);
+        }
+
+        .camera-list-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: white;
+            font-weight: 600;
+        }
+
+        .camera-list-meta {
+            margin-top: 5px;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
         /* ==================== 功能选项面板样式 (Function Panel - 确保未修改) ==================== */
         /* 模块分组标题 */
         .option-section h3 {
@@ -484,6 +636,29 @@
         }
         .clickable-mmsi:hover {
             color: var(--color-primary); /* 悬停时变蓝 */
+        }
+
+        .warning-target-name {
+            width: 150px;
+            flex-shrink: 0;
+        }
+
+        .camera-result-link {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: var(--color-warning-yellow);
+            font: inherit;
+            text-align: left;
+            text-decoration: underline;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .camera-result-link:hover,
+        .camera-result-link:focus-visible {
+            color: var(--color-primary);
+            outline: none;
         }
         
         /* ==================== 新增：船舶信息窗口 (InfoWindow) 样式 ==================== */
@@ -712,6 +887,9 @@
             <div id="btn-config" class="toolbar-icon" onclick="togglePanel('config-panel-container')">
                 ⚙️<span class="icon-label">图层配置</span>
             </div>
+            <div id="btn-camera" class="toolbar-icon" onclick="togglePanel('camera-panel-container')">
+                📹<span class="icon-label">摄像头</span>
+            </div>
             <div id="btn-function" class="toolbar-icon" onclick="togglePanel('function-panel-container')">
                 🛠️<span class="icon-label">功能选项</span>
             </div>
@@ -784,7 +962,96 @@
             </div>
 
         </div>
-        
+
+        <div id="camera-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>摄像头管理</h2>
+            </div>
+
+            <label class="fence-form-label" for="camera-config-key">摄像头标识</label>
+            <input
+                id="camera-config-key"
+                class="fence-form-control"
+                type="text"
+                maxlength="64"
+                placeholder="例如：harbor-02"
+            >
+            <p class="camera-config-help">
+                标识用于数据库和实时流地址，创建后不能修改；独立推流进程的
+                <code>--camera-key</code> 必须与此处一致。
+            </p>
+
+            <label class="fence-form-label" for="camera-config-name">摄像头名称</label>
+            <input
+                id="camera-config-name"
+                class="fence-form-control"
+                type="text"
+                maxlength="100"
+                placeholder="例如：港区摄像头 01"
+            >
+
+            <div class="camera-coordinate-grid">
+                <div>
+                    <label class="fence-form-label" for="camera-config-longitude">经度</label>
+                    <input
+                        id="camera-config-longitude"
+                        class="fence-form-control"
+                        type="number"
+                        min="-180"
+                        max="180"
+                        step="0.000001"
+                    >
+                </div>
+                <div>
+                    <label class="fence-form-label" for="camera-config-latitude">纬度</label>
+                    <input
+                        id="camera-config-latitude"
+                        class="fence-form-control"
+                        type="number"
+                        min="-90"
+                        max="90"
+                        step="0.000001"
+                    >
+                </div>
+            </div>
+
+            <p class="camera-config-help">可以直接输入坐标，也可以点击“地图选点”后在地图上单击摄像头位置。</p>
+
+            <label class="fence-form-label" for="camera-config-video-url">视频地址</label>
+            <input
+                id="camera-config-video-url"
+                class="fence-form-control"
+                type="text"
+                maxlength="2000"
+                placeholder="/api/cameras/harbor-01/video/"
+            >
+            <p class="camera-config-help">支持浏览器可直接播放的视频地址；RTSP 视频需要先转换为 HLS、WebRTC 或 MP4。</p>
+
+            <button
+                id="camera-config-visible"
+                class="fence-button fence-status-button"
+                type="button"
+                data-visible="true"
+                aria-pressed="true"
+            >地图标记：已显示（点击隐藏）</button>
+
+            <div class="fence-actions">
+                <button id="camera-config-save" class="fence-button" type="button">保存摄像头</button>
+                <button id="camera-config-new" class="fence-button" type="button">新建/清空</button>
+                <button id="camera-map-pick" class="fence-button" type="button">地图选点</button>
+                <button id="camera-config-locate" class="fence-button" type="button">定位摄像头</button>
+                <button id="camera-config-preview" class="fence-button" type="button">预览视频</button>
+                <button id="camera-config-delete" class="fence-button danger" type="button">删除摄像头</button>
+            </div>
+
+            <div id="camera-config-message" role="status" aria-live="polite"></div>
+
+            <div class="option-section">
+                <h3>已配置摄像头</h3>
+                <div id="camera-config-list">正在加载……</div>
+            </div>
+        </div>
+
         <div id="function-panel-container" class="side-panel-container">
             
             <div style="color: white; font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--color-primary);">AI 功能控制</div>
@@ -1418,6 +1685,48 @@
         </div>
     </div>
 
+    <div
+        id="camera-video-modal"
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="camera-video-title"
+        onclick="closeCameraVideo(event)"
+    >
+        <div class="modal-content camera-video-modal-content" onclick="event.stopPropagation()">
+            <button
+                class="close-button"
+                type="button"
+                aria-label="关闭视频"
+                onclick="closeCameraVideo()"
+                style="border: 0; background: transparent;"
+            >×</button>
+            <h3 id="camera-video-title">港区摄像头 01</h3>
+            <p class="camera-video-meta">实时画面来自独立推流进程，关闭窗口不会停止视频源。</p>
+            <div class="camera-stream-stage">
+                <img
+                    id="camera-live-image"
+                    class="camera-video-player"
+                    alt="摄像头实时画面"
+                    hidden
+                >
+                <video
+                    id="camera-video-fallback"
+                    class="camera-video-player"
+                    controls
+                    playsinline
+                    preload="metadata"
+                    loop
+                    hidden
+                    src="{% url 'camera_video' %}"
+                >
+                    当前浏览器不支持 HTML5 视频播放。
+                </video>
+                <div id="camera-stream-status" class="camera-stream-status">尚未连接</div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ==================== JAVASCRIPT 逻辑 (WebSocket 实现) ====================
 
@@ -1449,6 +1758,26 @@
         let marineWeatherLoadPromise = null;
         let marineWeatherRefreshTimer = null;
         let marineWeatherInfoWindow = null;
+        let cameraConfigurations = new Map();
+        let cameraMarkers = new Map();
+        let selectedCameraKey = null;
+        let activeCameraConfig = null;
+        let isCameraMapPickActive = false;
+        let cameraStreamSocket = null;
+        let cameraStreamFallbackTimer = null;
+        let cameraStreamObjectUrl = null;
+        let cameraStreamHasFrame = false;
+
+        const CAMERA_COLLECTION_URL = "{% url 'camera_collection' %}";
+        const CAMERA_DETAIL_URL_TEMPLATE =
+            "{% url 'camera_detail' camera_key='__camera_key__' %}";
+        const DEFAULT_CAMERA_CONFIG = Object.freeze({
+            id: '',
+            name: '',
+            position: [113.667000, 22.168000],
+            videoUrl: "{% url 'camera_video' %}",
+            visible: true,
+        });
 
         // 【新增】WebSocket 实例
         let ws = null;
@@ -1724,6 +2053,32 @@
             }).join('<br>');
         }
 
+        function escapeHtml(value) {
+            const element = document.createElement('span');
+            element.textContent = String(value ?? '');
+            return element.innerHTML;
+        }
+
+        function buildTargetNameHtml(target) {
+            const name = escapeHtml(target.name || '未知目标');
+            const cameraKey = String(target.camera_key || '').trim();
+            if (!/^[a-zA-Z0-9_-]+$/.test(cameraKey)) {
+                return name;
+            }
+
+            return `<button type="button" class="camera-result-link" onclick="openWarningCamera('${cameraKey}')">${name}</button>`;
+        }
+
+        function openWarningCamera(cameraKey) {
+            if (!cameraConfigurations.has(cameraKey)) {
+                window.alert(`未找到摄像头配置：${cameraKey}`);
+                return;
+            }
+
+            closeDetailModal();
+            openCameraVideo(cameraKey);
+        }
+
         function applyDetectionPayload(featureId, payload) {
             latestDetectionPayloads[featureId] = payload;
             detectionResults[featureId] = payload.results || [];
@@ -1860,11 +2215,15 @@
             let detailHtml = '<ul class="modal-details-list">';
             targets.forEach((target, index) => {                
                 const mmsiHtml = buildTargetMmsiHtml(target);
+                const targetNameHtml = buildTargetNameHtml(target);
+                const detailsHtml = escapeHtml(
+                    target.details || target.status || ''
+                );
 
                 detailHtml += `<li>
-                                    <span style="width: 80px;">${target.name}</span> 
+                                    <span class="warning-target-name">${targetNameHtml}</span>
                                     <span style="flex-grow: 1;">${mmsiHtml}</span>
-                                    <span style="width: 300px; text-align: left;">${target.details}</span>
+                                    <span style="width: 300px; text-align: left;">${detailsHtml}</span>
                                 </li>`;
             });
             detailHtml += '</ul>';
@@ -1879,6 +2238,610 @@
             if (!event || event.target.id === 'detail-modal' || event.target.className === 'close-button') {
                 modal.style.display = 'none';
             }
+        }
+
+        function normalizeDatabaseCamera(camera) {
+            return {
+                id: camera.camera_key,
+                name: camera.name,
+                position: [Number(camera.longitude), Number(camera.latitude)],
+                videoUrl: camera.video_url,
+                visible: camera.is_visible,
+            };
+        }
+
+        function cameraDetailUrl(cameraKey) {
+            return CAMERA_DETAIL_URL_TEMPLATE.replace(
+                '__camera_key__',
+                encodeURIComponent(cameraKey),
+            );
+        }
+
+        function createCameraMarker(config) {
+            if (!map || !config?.id || cameraMarkers.has(config.id)) return;
+
+            const markerButton = document.createElement('button');
+            markerButton.type = 'button';
+            markerButton.className = 'camera-marker-button';
+
+            const markerIcon = document.createElement('span');
+            markerIcon.setAttribute('aria-hidden', 'true');
+            markerIcon.textContent = '📹';
+
+            const markerLabel = document.createElement('span');
+            markerLabel.className = 'camera-marker-label';
+            markerButton.append(markerIcon, markerLabel);
+            markerButton.addEventListener('click', event => {
+                event.stopPropagation();
+                openCameraVideo(config.id);
+            });
+
+            const marker = new AMap.Marker({
+                map,
+                position: config.position,
+                content: markerButton,
+                anchor: 'bottom-center',
+                zIndex: 160,
+                title: config.name,
+            });
+            cameraMarkers.set(config.id, marker);
+            updateCameraMarker(config);
+        }
+
+        function updateCameraMarker(config) {
+            if (!config?.id) return;
+            const marker = cameraMarkers.get(config.id);
+            if (!marker) {
+                createCameraMarker(config);
+                return;
+            }
+
+            marker.setPosition(config.position);
+            const markerElement = marker.getContent();
+            const markerLabel = markerElement?.querySelector('.camera-marker-label');
+            if (markerLabel) markerLabel.textContent = config.name;
+            if (markerElement) {
+                markerElement.title = `查看${config.name}视频`;
+                markerElement.setAttribute('aria-label', `查看${config.name}视频`);
+            }
+            config.visible ? marker.show() : marker.hide();
+        }
+
+        function syncCameraMarkers() {
+            cameraMarkers.forEach((marker, cameraKey) => {
+                if (!cameraConfigurations.has(cameraKey)) {
+                    marker.setMap(null);
+                    cameraMarkers.delete(cameraKey);
+                }
+            });
+            cameraConfigurations.forEach(config => updateCameraMarker(config));
+        }
+
+        function setCameraStreamStatus(message, isError = false) {
+            const status = document.getElementById('camera-stream-status');
+            status.textContent = message;
+            status.classList.toggle('error', isError);
+        }
+
+        function showCameraFallback(message) {
+            const modal = document.getElementById('camera-video-modal');
+            if (
+                modal.style.display !== 'flex' ||
+                cameraStreamHasFrame ||
+                !activeCameraConfig
+            ) return;
+
+            const fallback = document.getElementById('camera-video-fallback');
+            const liveImage = document.getElementById('camera-live-image');
+            liveImage.hidden = true;
+            fallback.hidden = false;
+            if (fallback.getAttribute('src') !== activeCameraConfig.videoUrl) {
+                fallback.setAttribute('src', activeCameraConfig.videoUrl);
+                fallback.load();
+            }
+            fallback.play().catch(() => {
+                // 自动播放被浏览器阻止时，用户仍可点击播放器的播放按钮。
+            });
+            setCameraStreamStatus(message, true);
+        }
+
+        function handleCameraStreamFrame(frameData) {
+            cameraStreamHasFrame = true;
+            if (cameraStreamFallbackTimer) {
+                window.clearTimeout(cameraStreamFallbackTimer);
+                cameraStreamFallbackTimer = null;
+            }
+
+            const fallback = document.getElementById('camera-video-fallback');
+            const liveImage = document.getElementById('camera-live-image');
+            fallback.pause();
+            fallback.hidden = true;
+            liveImage.hidden = false;
+
+            if (cameraStreamObjectUrl) {
+                URL.revokeObjectURL(cameraStreamObjectUrl);
+            }
+            const frameBlob = frameData instanceof Blob
+                ? frameData
+                : new Blob([frameData], {type: 'image/jpeg'});
+            cameraStreamObjectUrl = URL.createObjectURL(frameBlob);
+            liveImage.src = cameraStreamObjectUrl;
+            setCameraStreamStatus('实时画面');
+        }
+
+        function connectCameraStream() {
+            disconnectCameraStream();
+            cameraStreamHasFrame = false;
+            if (!activeCameraConfig?.id) {
+                showCameraFallback('摄像头标识为空，当前显示备用视频');
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const cameraKey = encodeURIComponent(activeCameraConfig.id);
+            const streamUrl =
+                `${protocol}//${window.location.host}/ws/cameras/${cameraKey}/stream/`;
+            setCameraStreamStatus('正在连接实时视频流……');
+
+            const socket = new WebSocket(streamUrl);
+            socket.binaryType = 'blob';
+            cameraStreamSocket = socket;
+
+            socket.onopen = () => {
+                if (cameraStreamSocket !== socket) return;
+                setCameraStreamStatus('已连接，正在等待视频帧……');
+            };
+            socket.onmessage = event => {
+                if (cameraStreamSocket !== socket) return;
+                if (typeof event.data !== 'string') {
+                    handleCameraStreamFrame(event.data);
+                    return;
+                }
+
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (
+                        payload.type === 'stream.status' &&
+                        payload.status === 'playing'
+                    ) {
+                        setCameraStreamStatus(
+                            payload.video_name
+                                ? `实时播放：${payload.video_name}`
+                                : '实时画面',
+                        );
+                    }
+                } catch (error) {
+                    console.warn('无法解析摄像头流状态：', error);
+                }
+            };
+            socket.onerror = () => {
+                if (cameraStreamSocket === socket) {
+                    setCameraStreamStatus('实时视频流连接异常', true);
+                }
+            };
+            socket.onclose = () => {
+                if (cameraStreamSocket !== socket) return;
+                cameraStreamSocket = null;
+                cameraStreamHasFrame = false;
+                showCameraFallback('实时流已断开，当前显示备用视频');
+            };
+
+            cameraStreamFallbackTimer = window.setTimeout(() => {
+                if (!cameraStreamHasFrame) {
+                    showCameraFallback('尚未收到实时帧，当前显示备用视频');
+                }
+            }, 3000);
+        }
+
+        function disconnectCameraStream() {
+            if (cameraStreamFallbackTimer) {
+                window.clearTimeout(cameraStreamFallbackTimer);
+                cameraStreamFallbackTimer = null;
+            }
+            if (cameraStreamSocket) {
+                const socket = cameraStreamSocket;
+                cameraStreamSocket = null;
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                socket.close();
+            }
+
+            const fallback = document.getElementById('camera-video-fallback');
+            const liveImage = document.getElementById('camera-live-image');
+            fallback.pause();
+            fallback.hidden = true;
+            liveImage.hidden = true;
+            liveImage.removeAttribute('src');
+            if (cameraStreamObjectUrl) {
+                URL.revokeObjectURL(cameraStreamObjectUrl);
+                cameraStreamObjectUrl = null;
+            }
+        }
+
+        function openCameraVideo(cameraOrKey) {
+            const config = typeof cameraOrKey === 'string'
+                ? cameraConfigurations.get(cameraOrKey)
+                : cameraOrKey;
+            if (!config) {
+                setCameraConfigMessage('找不到要播放的摄像头配置。', true);
+                return;
+            }
+
+            activeCameraConfig = {
+                ...config,
+                position: [...config.position],
+            };
+            const modal = document.getElementById('camera-video-modal');
+            document.getElementById('camera-video-title').textContent =
+                activeCameraConfig.name;
+            modal.style.display = 'flex';
+            connectCameraStream();
+        }
+
+        function closeCameraVideo(event) {
+            const modal = document.getElementById('camera-video-modal');
+            if (event && event.target !== modal) return;
+
+            disconnectCameraStream();
+            activeCameraConfig = null;
+            modal.style.display = 'none';
+        }
+
+        function setCameraConfigMessage(message, isError = false) {
+            const element = document.getElementById('camera-config-message');
+            element.textContent = message;
+            element.style.color = isError
+                ? 'var(--color-alert-red)'
+                : 'var(--color-success-green)';
+        }
+
+        function setCameraVisibilityControl(isVisible) {
+            const visible = Boolean(isVisible);
+            const button = document.getElementById('camera-config-visible');
+            button.dataset.visible = String(visible);
+            button.setAttribute('aria-pressed', String(visible));
+            button.classList.toggle('inactive', !visible);
+            button.textContent = visible
+                ? '地图标记：已显示（点击隐藏）'
+                : '地图标记：已隐藏（点击显示）';
+            const marker = selectedCameraKey
+                ? cameraMarkers.get(selectedCameraKey)
+                : null;
+            if (marker) visible ? marker.show() : marker.hide();
+        }
+
+        function populateCameraConfigForm(config) {
+            const value = config || {
+                ...DEFAULT_CAMERA_CONFIG,
+                position: [...DEFAULT_CAMERA_CONFIG.position],
+            };
+            const keyInput = document.getElementById('camera-config-key');
+            keyInput.value = value.id;
+            keyInput.readOnly = Boolean(selectedCameraKey);
+            document.getElementById('camera-config-name').value = value.name;
+            document.getElementById('camera-config-longitude').value =
+                Number(value.position[0]).toFixed(6);
+            document.getElementById('camera-config-latitude').value =
+                Number(value.position[1]).toFixed(6);
+            document.getElementById('camera-config-video-url').value =
+                value.videoUrl;
+            setCameraVisibilityControl(value.visible);
+        }
+
+        function applyDatabaseCameraConfig(camera) {
+            const config = normalizeDatabaseCamera(camera);
+            cameraConfigurations.set(config.id, config);
+            updateCameraMarker(config);
+            selectCameraConfig(config.id);
+        }
+
+        async function cameraConfigRequest(
+            url,
+            method = 'GET',
+            data = null,
+        ) {
+            const options = {
+                method,
+                headers: {
+                    'Accept': 'application/json',
+                },
+            };
+            if (method !== 'GET') {
+                options.headers['X-CSRFToken'] = getCookie('csrftoken');
+            }
+            if (data !== null) {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(data);
+            }
+
+            const response = await fetch(url, options);
+            let payload;
+            try {
+                payload = await response.json();
+            } catch (error) {
+                throw new Error(`服务器返回了无法解析的响应（HTTP ${response.status}）`);
+            }
+            if (!response.ok || payload.success === false) {
+                throw new Error(payload.message || `请求失败（HTTP ${response.status}）`);
+            }
+            return payload;
+        }
+
+        async function loadCameraConfig() {
+            setCameraConfigMessage('正在从数据库加载摄像头配置……');
+            try {
+                const payload = await cameraConfigRequest(CAMERA_COLLECTION_URL);
+                cameraConfigurations = new Map(
+                    payload.results.map(camera => {
+                        const config = normalizeDatabaseCamera(camera);
+                        return [config.id, config];
+                    }),
+                );
+                syncCameraMarkers();
+                renderCameraConfigList();
+                const firstCameraKey = cameraConfigurations.keys().next().value;
+                if (firstCameraKey) {
+                    selectCameraConfig(firstCameraKey);
+                } else {
+                    newCameraConfig();
+                }
+                setCameraConfigMessage(
+                    `已加载 ${cameraConfigurations.size} 个摄像头配置。`,
+                );
+            } catch (error) {
+                setCameraConfigMessage(`配置加载失败：${error.message}`, true);
+            }
+        }
+
+        function readCameraConfigForm() {
+            const cameraKey = document.getElementById('camera-config-key').value.trim();
+            const name = document.getElementById('camera-config-name').value.trim();
+            const longitudeInput = document.getElementById('camera-config-longitude').value.trim();
+            const latitudeInput = document.getElementById('camera-config-latitude').value.trim();
+            const longitude = Number(longitudeInput);
+            const latitude = Number(latitudeInput);
+            const videoUrl = document.getElementById('camera-config-video-url').value.trim();
+
+            if (!cameraKey) throw new Error('请输入摄像头标识');
+            if (!/^[-a-zA-Z0-9_]+$/.test(cameraKey)) {
+                throw new Error('摄像头标识只能包含字母、数字、下划线和连字符');
+            }
+            if (!name) throw new Error('请输入摄像头名称');
+            if (
+                !longitudeInput ||
+                !Number.isFinite(longitude) ||
+                longitude < -180 ||
+                longitude > 180
+            ) {
+                throw new Error('经度必须在 -180 到 180 之间');
+            }
+            if (
+                !latitudeInput ||
+                !Number.isFinite(latitude) ||
+                latitude < -90 ||
+                latitude > 90
+            ) {
+                throw new Error('纬度必须在 -90 到 90 之间');
+            }
+            if (!videoUrl) throw new Error('请输入视频地址');
+
+            return {
+                id: cameraKey,
+                name,
+                position: [longitude, latitude],
+                videoUrl,
+                visible: document.getElementById('camera-config-visible').dataset.visible === 'true',
+            };
+        }
+
+        function cameraConfigToApiPayload(config) {
+            return {
+                camera_key: config.id,
+                name: config.name,
+                longitude: config.position[0],
+                latitude: config.position[1],
+                video_url: config.videoUrl,
+                is_visible: config.visible,
+            };
+        }
+
+        function setCameraConfigBusy(isBusy) {
+            document.getElementById('camera-config-save').disabled = isBusy;
+            document.getElementById('camera-config-new').disabled = isBusy;
+            document.getElementById('camera-config-delete').disabled = isBusy;
+        }
+
+        async function saveCameraConfig() {
+            try {
+                const formConfig = readCameraConfigForm();
+                setCameraConfigBusy(true);
+                setCameraConfigMessage('正在保存到数据库……');
+                const isEditing = Boolean(selectedCameraKey);
+                const payload = await cameraConfigRequest(
+                    isEditing
+                        ? cameraDetailUrl(selectedCameraKey)
+                        : CAMERA_COLLECTION_URL,
+                    isEditing ? 'PUT' : 'POST',
+                    cameraConfigToApiPayload(formConfig),
+                );
+                applyDatabaseCameraConfig(payload.camera);
+                stopCameraMapPick();
+                renderCameraConfigList();
+                setCameraConfigMessage(
+                    isEditing
+                        ? '摄像头配置已更新。'
+                        : '新摄像头已创建。',
+                );
+            } catch (error) {
+                setCameraConfigMessage(error.message, true);
+            } finally {
+                setCameraConfigBusy(false);
+            }
+        }
+
+        function previewCameraConfig() {
+            try {
+                const config = readCameraConfigForm();
+                openCameraVideo(config);
+                setCameraConfigMessage('正在预览当前配置的视频。');
+            } catch (error) {
+                setCameraConfigMessage(error.message, true);
+            }
+        }
+
+        function locateCameraConfig() {
+            try {
+                const config = readCameraConfigForm();
+                map.setZoomAndCenter(Math.max(map.getZoom(), 14), config.position);
+                setCameraConfigMessage('已定位到摄像头位置。');
+            } catch (error) {
+                setCameraConfigMessage(error.message, true);
+            }
+        }
+
+        function handleCameraMapPick(event) {
+            const longitude = event.lnglat.getLng();
+            const latitude = event.lnglat.getLat();
+            document.getElementById('camera-config-longitude').value = longitude.toFixed(6);
+            document.getElementById('camera-config-latitude').value = latitude.toFixed(6);
+
+            if (selectedCameraKey) {
+                const draftConfig = readCameraConfigForm();
+                updateCameraMarker(draftConfig);
+            }
+            stopCameraMapPick();
+            setCameraConfigMessage('位置已选取，请点击“保存配置”使其长期生效。');
+        }
+
+        function startCameraMapPick() {
+            if (isCameraMapPickActive) {
+                stopCameraMapPick();
+                setCameraConfigMessage('已取消地图选点。');
+                return;
+            }
+
+            isCameraMapPickActive = true;
+            const button = document.getElementById('camera-map-pick');
+            button.classList.add('active');
+            button.textContent = '取消选点';
+            map.setDefaultCursor('crosshair');
+            map.on('click', handleCameraMapPick);
+            setCameraConfigMessage('请在地图上单击摄像头所在位置。');
+        }
+
+        function stopCameraMapPick() {
+            if (!map || !isCameraMapPickActive) return;
+
+            isCameraMapPickActive = false;
+            const button = document.getElementById('camera-map-pick');
+            button.classList.remove('active');
+            button.textContent = '地图选点';
+            map.setDefaultCursor('default');
+            map.off('click', handleCameraMapPick);
+        }
+
+        function selectCameraConfig(cameraKey) {
+            const config = cameraConfigurations.get(cameraKey);
+            if (!config) return;
+            selectedCameraKey = cameraKey;
+            populateCameraConfigForm(config);
+            renderCameraConfigList();
+        }
+
+        function newCameraConfig() {
+            stopCameraMapPick();
+            if (selectedCameraKey) {
+                updateCameraMarker(cameraConfigurations.get(selectedCameraKey));
+            }
+            selectedCameraKey = null;
+            populateCameraConfigForm();
+            renderCameraConfigList();
+            setCameraConfigMessage('请输入新摄像头信息并保存。');
+            document.getElementById('camera-config-key').focus();
+        }
+
+        async function deleteCameraConfig() {
+            if (!selectedCameraKey) {
+                setCameraConfigMessage('请先选择要删除的摄像头。', true);
+                return;
+            }
+            const config = cameraConfigurations.get(selectedCameraKey);
+            if (!window.confirm(`确定删除摄像头“${config.name}”吗？`)) return;
+
+            try {
+                setCameraConfigBusy(true);
+                await cameraConfigRequest(
+                    cameraDetailUrl(selectedCameraKey),
+                    'DELETE',
+                );
+                const deletedKey = selectedCameraKey;
+                cameraConfigurations.delete(deletedKey);
+                const marker = cameraMarkers.get(deletedKey);
+                if (marker) marker.setMap(null);
+                cameraMarkers.delete(deletedKey);
+                selectedCameraKey = null;
+                renderCameraConfigList();
+                const nextCameraKey = cameraConfigurations.keys().next().value;
+                nextCameraKey
+                    ? selectCameraConfig(nextCameraKey)
+                    : newCameraConfig();
+                setCameraConfigMessage('摄像头已从数据库删除。');
+            } catch (error) {
+                setCameraConfigMessage(error.message, true);
+            } finally {
+                setCameraConfigBusy(false);
+            }
+        }
+
+        function renderCameraConfigList() {
+            const container = document.getElementById('camera-config-list');
+            container.replaceChildren();
+            if (!cameraConfigurations.size) {
+                container.textContent = '尚未配置摄像头。';
+                return;
+            }
+
+            cameraConfigurations.forEach(config => {
+                const item = document.createElement('div');
+                item.className = 'camera-list-item';
+                item.classList.toggle('active', config.id === selectedCameraKey);
+
+                const heading = document.createElement('div');
+                heading.className = 'camera-list-heading';
+                const name = document.createElement('span');
+                name.textContent = config.name;
+                const state = document.createElement('span');
+                state.textContent = config.visible ? '显示' : '隐藏';
+                state.style.color = config.visible
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(name, state);
+
+                const meta = document.createElement('div');
+                meta.className = 'camera-list-meta';
+                meta.textContent =
+                    `${config.id} · ${config.position[0].toFixed(6)}, ` +
+                    `${config.position[1].toFixed(6)}`;
+                item.append(heading, meta);
+                item.onclick = () => selectCameraConfig(config.id);
+                container.appendChild(item);
+            });
+        }
+
+        function setupCameraConfiguration() {
+            populateCameraConfigForm();
+            document.getElementById('camera-config-save').onclick = saveCameraConfig;
+            document.getElementById('camera-config-new').onclick = newCameraConfig;
+            document.getElementById('camera-map-pick').onclick = startCameraMapPick;
+            document.getElementById('camera-config-locate').onclick = locateCameraConfig;
+            document.getElementById('camera-config-preview').onclick = previewCameraConfig;
+            document.getElementById('camera-config-delete').onclick = deleteCameraConfig;
+            document.getElementById('camera-config-visible').onclick = function() {
+                setCameraVisibilityControl(this.dataset.visible !== 'true');
+            };
+            loadCameraConfig();
         }
         
      	// ----------------- 新增：获取面板宽度函数 -----------------
@@ -2677,6 +3640,7 @@
             });
 
             map.on('zoomend', switchMarkersOnZoom);
+            setupCameraConfiguration();
 
             // 【修改】初始化地图后，立即尝试建立 WebSocket 连接
             initWebSocket();
@@ -2925,6 +3889,10 @@
             const targetPanel = document.getElementById(panelId);
             const targetButton = document.getElementById(`btn-${panelId.split('-')[0]}`);
             const isActive = targetPanel.classList.contains('active');
+
+            if (isCameraMapPickActive && (panelId !== 'camera-panel-container' || isActive)) {
+                stopCameraMapPick();
+            }
 
             allPanels.forEach(panel => panel.classList.remove('active'));
             allButtons.forEach(btn => btn.classList.remove('active'));
