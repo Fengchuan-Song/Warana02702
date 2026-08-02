@@ -1,7 +1,12 @@
-from django.contrib import admin
 from django.urls import path
-# from .views import index
+
+from . import views
+
+
+app_name = "ais_radar"
 
 urlpatterns = [
-    # path("", index, name='index'),
+    path("", views.health, name="health"),
+    path("fused-targets/", views.fused_targets, name="fused_targets"),
+    path("match/", views.match, name="match"),
 ]

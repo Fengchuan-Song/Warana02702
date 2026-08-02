@@ -182,6 +182,16 @@
             border-radius: 50%;
             margin-right: 10px;
         }
+
+        .ship-item.ais-radar-fused {
+            border-left-color: #8B0000;
+            color: #FF8A80;
+            background-color: rgba(139, 0, 0, 0.22);
+        }
+
+        .ship-item.ais-radar-fused .ship-status-icon {
+            box-shadow: 0 0 8px 2px rgba(139, 0, 0, 0.9);
+        }
         
         /* ==================== 图层配置面板样式 (保持不变) ==================== */
         #config-panel-container > div:first-child { 
@@ -625,6 +635,42 @@
         
         .modal-details-list li:last-child {
             border-bottom: none;
+        }
+
+        .fusion-match-index {
+            width: 36px;
+            color: var(--color-text-light);
+        }
+
+        .fusion-match-target {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .fusion-match-radar {
+            width: 150px;
+            color: #63B3ED;
+        }
+
+        .fusion-match-confidence {
+            width: 110px;
+            text-align: right;
+            color: #FF8A80;
+        }
+
+        .fusion-target-locate {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: #FF8A80;
+            text-decoration: underline;
+            cursor: pointer;
+            font: inherit;
+            text-align: left;
+        }
+
+        .fusion-target-locate:hover {
+            color: #FFFFFF;
         }
         
         /* 新增：可点击的 MMSI 样式 */
@@ -1731,7 +1777,12 @@
         // ==================== JAVASCRIPT 逻辑 (WebSocket 实现) ====================
 
         let map = null; 
-        let shipData = []; // shipData 现在将由 WebSocket 实时更新
+        let shipData = []; // 实时 AIS 与融合回放 AIS 合并后的地图数据
+        let operationalAisData = [];
+        let replayAisData = [];
+        let operationalAisUpdatedAt = 0;
+        let replayAisUpdatedAt = 0;
+        let radarData = []; // 最近一帧模拟雷达目标
         // let shipMarkers = []; 
         const CRITICAL_ZOOM_LEVEL = 11;
         let shipInfoWindow = null; 
@@ -1787,7 +1838,19 @@
         let shipLastSeenMap = new Map();
         let areAllShipsVisible = true;
         let functionSelectedShipMmsis = new Set();
+        let aisRadarFusedMmsis = new Set();
+        let aisRadarFusionState = {
+            available: false,
+            count: 0,
+            ais_ids: [],
+            radar_ids: [],
+            matches: [],
+        };
+        let aisRadarFusionPollTimer = null;
+        let aisRadarFusionRequestInFlight = false;
         const EXPIRATION_TIME = 60000;      // 目标消失阈值：60s
+        const AIS_RADAR_FUSION_POLL_INTERVAL = 3000;
+        const AIS_RADAR_FUSED_TARGETS_URL = "{% url 'ais_radar:fused_targets' %}";
 
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
@@ -1797,6 +1860,8 @@
         const ICON_CIRCLE_ACTIVE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100"><circle cx="50" cy="50" r="32" style="fill:%2348BB78;stroke:white;stroke-width:10"/></svg>';
         const ICON_TRIANGLE_VIOLATION_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 100 100"><polygon points="50,8 92,92 8,92" style="fill:%23E53E3E;stroke:white;stroke-width:8"/></svg>';
         const ICON_CIRCLE_VIOLATION_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100"><circle cx="50" cy="50" r="32" style="fill:%23E53E3E;stroke:white;stroke-width:10"/></svg>';
+        const ICON_TRIANGLE_FUSED_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 100 100"><polygon points="50,8 92,92 8,92" style="fill:%238B0000;stroke:%23FFFFFF;stroke-width:7"/></svg>';
+        const ICON_CIRCLE_FUSED_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 100 100"><circle cx="50" cy="50" r="32" style="fill:%238B0000;stroke:%23FFFFFF;stroke-width:10"/></svg>';
 
         // 记录当前选中的 MMSI
         let selectedShipMmsi = null;
@@ -1809,6 +1874,75 @@
                 'unknown', 'unknown target', '未命名', '未知', '未知船名', '未知船舶'
             ]);
             return missingNames.has(name.toLowerCase()) ? '未知目标' : name;
+        }
+
+        function normaliseMapShip(ship, source) {
+            const lon = Number(ship.lon);
+            const lat = Number(ship.lat);
+            const course = Number(ship.course ?? ship.heading ?? 0);
+            const speed = Number(ship.speed ?? 0);
+            if (!normalizeMmsi(ship.mmsi) || !Number.isFinite(lon) || !Number.isFinite(lat)) {
+                return null;
+            }
+            return {
+                id: ship.mmsi,
+                name: normalizeAisName(ship.name),
+                mmsi: ship.mmsi,
+                lon,
+                lat,
+                heading: Number.isFinite(course) ? course : 0,
+                course: Number.isFinite(course) ? course : 0,
+                speed: Number.isFinite(speed) ? speed : 0,
+                status: Number.isFinite(speed) && speed < 0.5
+                    ? 'anchor'
+                    : 'sailing',
+                source,
+            };
+        }
+
+        function refreshCombinedAisData() {
+            const now = Date.now();
+            const combinedShips = new Map();
+            const sourceIsFresh = updatedAt =>
+                updatedAt > 0 && now - updatedAt <= EXPIRATION_TIME;
+
+            // 回放数据先加入；同 MMSI 同时出现时，以业务 AIS worker 数据为准。
+            if (sourceIsFresh(replayAisUpdatedAt)) {
+                replayAisData.forEach(ship => {
+                    const mappedShip = normaliseMapShip(ship, 'ais-radar-replay');
+                    if (mappedShip) {
+                        combinedShips.set(normalizeMmsi(mappedShip.mmsi), mappedShip);
+                    }
+                });
+            }
+            if (sourceIsFresh(operationalAisUpdatedAt)) {
+                operationalAisData.forEach(ship => {
+                    const mappedShip = normaliseMapShip(ship, 'ais-worker');
+                    if (mappedShip) {
+                        combinedShips.set(normalizeMmsi(mappedShip.mmsi), mappedShip);
+                    }
+                });
+            }
+
+            shipData = Array.from(combinedShips.values());
+            updateMarkersAndList();
+
+            document.getElementById('total-ships').textContent = shipData.length;
+            document.getElementById('alert-ships').textContent = shipData.filter(
+                ship => ship.status === 'sailing' && ship.speed > 25
+            ).length;
+        }
+
+        function applyAisSourceSnapshot(source, rawData) {
+            const snapshot = Array.isArray(rawData) ? rawData : [];
+            if (source === 'ais-radar-replay') {
+                replayAisData = snapshot;
+                replayAisUpdatedAt = Date.now();
+            } else {
+                operationalAisData = snapshot;
+                operationalAisUpdatedAt = Date.now();
+            }
+            refreshCombinedAisData();
         }
 
         // ----------------- 【新增核心函数】WebSocket 初始化 -----------------
@@ -1828,38 +1962,20 @@
                 const message = JSON.parse(e.data);
                 
                 if (message.type === 'ais_update') {
-                    const rawData = message.data;
-                    
-                    // 1. 格式化数据，更新全局 shipData
-                    // 假设 rawData 是一个船舶对象数组，且包含 mmsi, name, lon, lat, course, speed 等字段
-                    shipData = rawData.map(ship => ({
-                        id: ship.mmsi, 
-                        name: normalizeAisName(ship.name),
-                        mmsi: ship.mmsi,
-                        lon: ship.lon,
-                        lat: ship.lat,
-                        heading: ship.course, 
-                        course: ship.course,
-                        speed: ship.speed,
-                        // 根据速度模拟状态
-                        status: ship.speed < 0.5 ? 'anchor' : 'sailing' 
-                    }));
-                    
-                    // 2. 刷新地图 Marker 和列表
-                    updateMarkersAndList();
-                    
-                    // 3. 更新概览卡片数据 (需要根据新的 shipData 计算)
-                    const totalShips = shipData.length;
-                    // 假设速度超过 25 节为异常/告警
-                    const alertCount = shipData.filter(s => s.status === 'sailing' && s.speed > 25).length; 
-                    
-                    document.getElementById('total-ships').textContent = totalShips;
-                    document.getElementById('alert-ships').textContent = alertCount;
+                    applyAisSourceSnapshot('ais-worker', message.data);
+                } else if (message.type === 'ais_radar_replay_update') {
+                    applyAisSourceSnapshot('ais-radar-replay', message.data);
                 } else if (message.type === 'detection_update') {
                     const backendResults = message.data || {};
                     Object.entries(backendResults).forEach(([featureId, payload]) => {
                         applyDetectionPayload(featureId, payload);
                     });
+                } else if (message.type === 'radar_update') {
+                    radarData = Array.isArray(message.data) ? message.data : [];
+                } else if (message.type === 'ais_radar_fusion_update') {
+                    if (isAisRadarFusionEnabled()) {
+                        applyAisRadarFusionState(message.data || {});
+                    }
                 }
             };
             console.log("afterafter");
@@ -1896,11 +2012,231 @@
             return activeSensors;
         }
 
-        // 【新增】模拟判断是否有融合结果
+        function isAisRadarFusionEnabled() {
+            const checkbox = document.querySelector(
+                'input[name="fusion-ais-radar"]'
+            );
+            return Boolean(checkbox && checkbox.checked);
+        }
+
+        function isAisRadarFusedTarget(mmsi) {
+            return isAisRadarFusionEnabled() &&
+                aisRadarFusedMmsis.has(normalizeMmsi(mmsi));
+        }
+
+        function updateAisRadarFusionCount(count, message = '') {
+            const detailTrigger = document.getElementById(
+                'fusion-ais-radar-count'
+            );
+            if (!detailTrigger) return;
+            if (!isAisRadarFusionEnabled()) {
+                detailTrigger.style.display = 'none';
+                detailTrigger.textContent = '';
+                detailTrigger.onclick = null;
+                detailTrigger.onkeydown = null;
+                detailTrigger.removeAttribute('role');
+                detailTrigger.removeAttribute('tabindex');
+                return;
+            }
+            detailTrigger.textContent = message || `融合: ${count}个`;
+            detailTrigger.style.display = 'inline-block';
+            detailTrigger.setAttribute('role', 'button');
+            detailTrigger.setAttribute('tabindex', '0');
+            detailTrigger.onclick = openAisRadarFusionModal;
+            detailTrigger.onkeydown = event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openAisRadarFusionModal();
+                }
+            };
+        }
+
+        function getShipStatusColor(ship) {
+            if (isAisRadarFusedTarget(ship.mmsi)) return '#8B0000';
+            if (ship.status === 'sailing') return 'var(--color-success-green)';
+            if (ship.status === 'anchor') return 'var(--color-warning-yellow)';
+            return 'var(--color-alert-red)';
+        }
+
+        function refreshAisRadarFusionPresentation() {
+            if (map) switchMarkersOnZoom();
+            const shipsByMmsi = new Map(
+                shipData.map(ship => [normalizeMmsi(ship.mmsi), ship])
+            );
+            document.querySelectorAll('#ship-list .ship-item').forEach(item => {
+                const ship = shipsByMmsi.get(normalizeMmsi(item.dataset.mmsi));
+                if (!ship) return;
+                const isFused = isAisRadarFusedTarget(ship.mmsi);
+                item.classList.toggle('ais-radar-fused', isFused);
+                if (isFused) {
+                    item.title = 'AIS/Radar 已融合';
+                } else {
+                    item.removeAttribute('title');
+                }
+                const statusIcon = item.querySelector('.ship-status-icon');
+                if (statusIcon) {
+                    statusIcon.style.backgroundColor = getShipStatusColor(ship);
+                }
+            });
+        }
+
+        function applyAisRadarFusionState(payload) {
+            aisRadarFusionState = {
+                available: Boolean(payload.available),
+                updated_at: payload.updated_at || null,
+                source_start_time: payload.source_start_time || null,
+                source_end_time: payload.source_end_time || null,
+                count: Number(payload.count) || 0,
+                ais_ids: Array.isArray(payload.ais_ids) ? payload.ais_ids : [],
+                radar_ids: Array.isArray(payload.radar_ids) ? payload.radar_ids : [],
+                matches: Array.isArray(payload.matches) ? payload.matches : [],
+            };
+            const nextMmsis = new Set(
+                aisRadarFusionState.ais_ids
+                    .map(normalizeMmsi)
+                    .filter(Boolean)
+            );
+            const previousKey = Array.from(aisRadarFusedMmsis).sort().join('|');
+            const nextKey = Array.from(nextMmsis).sort().join('|');
+            aisRadarFusedMmsis = nextMmsis;
+            updateAisRadarFusionCount(nextMmsis.size);
+
+            if (previousKey !== nextKey) {
+                refreshAisRadarFusionPresentation();
+            }
+            const modal = document.getElementById('detail-modal');
+            if (
+                modal?.style.display === 'flex' &&
+                modal.dataset.contentType === 'ais-radar-fusion'
+            ) {
+                openAisRadarFusionModal();
+            }
+        }
+
+        function formatFusionTimestamp(value) {
+            if (!value) return '';
+            return String(value).replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:\d\d|Z)$/, '');
+        }
+
+        function openAisRadarFusionModal() {
+            const modal = document.getElementById('detail-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalSummary = document.getElementById('modal-summary');
+            const modalDetails = document.getElementById('modal-details');
+            const matches = aisRadarFusionState.matches;
+            const startTime = formatFusionTimestamp(
+                aisRadarFusionState.source_start_time
+            );
+            const endTime = formatFusionTimestamp(
+                aisRadarFusionState.source_end_time
+            );
+
+            modal.dataset.contentType = 'ais-radar-fusion';
+            modalTitle.textContent = 'AIS/雷达融合目标详情';
+            modalSummary.textContent = `当前共融合 ${matches.length} 个目标` +
+                (endTime ? ` · 数据窗口：${startTime} 至 ${endTime}` : '');
+
+            if (!matches.length) {
+                modalDetails.innerHTML =
+                    '<div style="padding: 20px; text-align: center; color: var(--color-text-light);">当前没有融合目标</div>';
+                modal.style.display = 'flex';
+                return;
+            }
+
+            const shipsByMmsi = new Map(
+                shipData.map(ship => [normalizeMmsi(ship.mmsi), ship])
+            );
+            let detailHtml = '<ul class="modal-details-list">';
+            matches.forEach((match, index) => {
+                const aisId = normalizeMmsi(match.ais_id);
+                const radarId = String(match.radar_id ?? '').trim();
+                const ship = shipsByMmsi.get(aisId);
+                const shipName = ship?.name && ship.name !== '未知目标'
+                    ? `${ship.name} · `
+                    : '';
+                const confidence = Number(match.confidence);
+                const confidenceText = Number.isFinite(confidence)
+                    ? `${(confidence * 100).toFixed(1)}%`
+                    : '--';
+
+                detailHtml += `<li>
+                    <span class="fusion-match-index">${index + 1}.</span>
+                    <span class="fusion-match-target">
+                        <button type="button" class="fusion-target-locate" data-match-index="${index}">
+                            ${escapeHtml(shipName)}MMSI: ${escapeHtml(aisId)}
+                        </button>
+                    </span>
+                    <span class="fusion-match-radar">Radar: ${escapeHtml(radarId)}</span>
+                    <span class="fusion-match-confidence">置信度: ${confidenceText}</span>
+                </li>`;
+            });
+            detailHtml += '</ul>';
+            modalDetails.innerHTML = detailHtml;
+            modalDetails.querySelectorAll('.fusion-target-locate').forEach(button => {
+                button.addEventListener('click', () => {
+                    const match = matches[Number(button.dataset.matchIndex)];
+                    if (match) locateShipByMMSI(match.ais_id);
+                });
+            });
+            modal.style.display = 'flex';
+        }
+
+        async function loadAisRadarFusionState() {
+            if (!isAisRadarFusionEnabled() || aisRadarFusionRequestInFlight) {
+                return;
+            }
+            aisRadarFusionRequestInFlight = true;
+            try {
+                const response = await fetch(AIS_RADAR_FUSED_TARGETS_URL, {
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                if (isAisRadarFusionEnabled()) {
+                    applyAisRadarFusionState(payload);
+                }
+            } catch (error) {
+                console.warn('AIS/Radar 融合状态加载失败:', error);
+                updateAisRadarFusionCount(
+                    aisRadarFusedMmsis.size,
+                    '融合: 暂不可用'
+                );
+            } finally {
+                aisRadarFusionRequestInFlight = false;
+            }
+        }
+
+        function setAisRadarFusionEnabled(isEnabled) {
+            if (aisRadarFusionPollTimer) {
+                window.clearInterval(aisRadarFusionPollTimer);
+                aisRadarFusionPollTimer = null;
+            }
+
+            if (isEnabled) {
+                updateAisRadarFusionCount(aisRadarFusedMmsis.size, '融合: 加载中...');
+                loadAisRadarFusionState();
+                aisRadarFusionPollTimer = window.setInterval(
+                    loadAisRadarFusionState,
+                    AIS_RADAR_FUSION_POLL_INTERVAL
+                );
+            } else {
+                aisRadarFusedMmsis = new Set();
+                updateAisRadarFusionCount(0);
+                refreshAisRadarFusionPresentation();
+            }
+        }
+
+        // AIS/Radar 使用推理接口的真实结果；其余模型暂保留演示数据。
         function hasFusionResult(mmsi, sensorKey) {
+            if (sensorKey === 'AIS/RADAR') {
+                return isAisRadarFusedTarget(mmsi);
+            }
             const mmsiResultMap = {
-                '123456780': ['VIS', 'AIS/RADAR', 'UAV', 'IR', 'SAR'],
-                '123456781': ['VIS', 'AIS/RADAR'],
+                '123456780': ['VIS', 'UAV', 'IR', 'SAR'],
+                '123456781': ['VIS'],
             };
             
             if (mmsiResultMap[mmsi]) {
@@ -2146,7 +2482,13 @@
         }
 
         function handleToggleChange(checkbox, featureId) {
-            // 融合模型开关只影响船舶信息弹窗，不属于违法检测任务。
+            if (featureId === 'fusion-ais-radar') {
+                setAisRadarFusionEnabled(checkbox.checked);
+                closeShipPopup();
+                return;
+            }
+
+            // 其他融合模型开关只影响船舶信息弹窗，不属于违法检测任务。
             if (!featureId.startsWith('detect-')) {
                 return;
             }
@@ -2188,6 +2530,7 @@
             const modalSummary = document.getElementById('modal-summary');
             const modalDetails = document.getElementById('modal-details');
             
+            modal.dataset.contentType = 'detection';
             modalTitle.textContent = title + ' 详情列表';
             modalSummary.textContent = `当前共计检测到 ${getFeatureLabel(featureId)}: ${count} 个`;
             
@@ -3784,10 +4127,15 @@
                     'violation-selected',
                     shipMmsi === selectedShipMmsi && selectedShipHighlightType === 'violation'
                 );
+                const isFused = isAisRadarFusedTarget(shipMmsi);
+                listItem.classList.toggle('ais-radar-fused', isFused);
 
                 // --- 关键修复：添加以下三行来显示文字和状态图标 ---
-                const statusColor = ship.status === 'sailing' ? 'var(--color-success-green)' : (ship.status === 'anchor' ? 'var(--color-warning-yellow)' : 'var(--color-alert-red)');
+                const statusColor = getShipStatusColor(ship);
                 listItem.innerHTML = `<span class="ship-status-icon" style="background-color: ${statusColor};"></span>${ship.name} (MMSI: ${ship.mmsi})`;
+                if (isFused) {
+                    listItem.title = 'AIS/Radar 已融合';
+                }
                 // ----------------------------------------------
                 
                 listItem.onclick = () => {
@@ -5825,12 +6173,18 @@
         function refreshMarkerIcon(marker, isActive, highlightType = 'normal') {
             const currentZoom = map.getZoom();
             const isTriangleMode = currentZoom > CRITICAL_ZOOM_LEVEL;
+            const ship = marker.getExtData() || {};
+            const isFused = isAisRadarFusedTarget(ship.mmsi);
             
             let iconUrl = isTriangleMode ? ICON_TRIANGLE_URL : ICON_CIRCLE_URL;
             if (isActive && highlightType === 'violation') {
                 iconUrl = isTriangleMode
                     ? ICON_TRIANGLE_VIOLATION_URL
                     : ICON_CIRCLE_VIOLATION_URL;
+            } else if (isFused) {
+                iconUrl = isTriangleMode
+                    ? ICON_TRIANGLE_FUSED_URL
+                    : ICON_CIRCLE_FUSED_URL;
             } else if (isActive) {
                 iconUrl = isTriangleMode
                     ? ICON_TRIANGLE_ACTIVE_URL

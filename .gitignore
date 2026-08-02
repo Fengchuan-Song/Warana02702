@@ -3,5 +3,6 @@ __pycache__
 Deviation/knowledge/*
 !Deviation/knowledge/QZHX_route_samples.npz
 Data/
+.runtime/
 test.py
 redme.docx
