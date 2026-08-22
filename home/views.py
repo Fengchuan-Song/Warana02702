@@ -19,9 +19,18 @@ from .models import CameraConfiguration
 from .typhoon_service import TyphoonDataError, get_current_typhoons
 
 
+@never_cache
 @ensure_csrf_cookie
 def index(request):
     return render(request, 'Demo_v10.html')
+
+
+@never_cache
+@ensure_csrf_cookie
+@require_GET
+def model_parameter_page(request):
+    """Render the full-page editor for runtime detection-model parameters."""
+    return render(request, "model_parameters.html")
 
 
 CAMERA_VIDEO_PATH = (

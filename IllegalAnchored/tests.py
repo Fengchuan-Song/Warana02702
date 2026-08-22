@@ -3,10 +3,21 @@ from datetime import timedelta
 
 from django.core.cache import cache
 from django.urls import resolve
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 from django.utils import timezone
 
 from AISData.detection import DETECTORS
+from AISData.maritime_zones import (
+    ANCHORAGE_ZONE_TYPES,
+    PORT_ZONE_TYPES,
+    get_maritime_zones,
+    point_in_polygon,
+)
 from AISData.views import cached_detection_result
 
 from .views import detect_illegal_anchored
@@ -22,6 +33,22 @@ def polygon_centroid(points):
         sum(point[0] for point in points) / len(points),
         sum(point[1] for point in points) / len(points),
     )
+
+
+def polygon_interior_point(zone):
+    candidate = polygon_centroid(zone.points)
+    if point_in_polygon(*candidate, zone.points):
+        return candidate
+    min_lon, min_lat, max_lon, max_lat = zone.bounds
+    for x_step in range(1, 40):
+        for y_step in range(1, 40):
+            candidate = (
+                min_lon + (max_lon - min_lon) * x_step / 40,
+                min_lat + (max_lat - min_lat) * y_step / 40,
+            )
+            if point_in_polygon(*candidate, zone.points):
+                return candidate
+    raise AssertionError(f"No interior test point found for {zone.name}")
 
 
 class AnchorageGeometryTests(SimpleTestCase):
@@ -74,6 +101,57 @@ class AnchorageGeometryTests(SimpleTestCase):
         )
         result = classify_location(*anchorage["center"])
         self.assertEqual(result["state"], "authorized")
+
+    def test_bundled_hong_kong_anchorage_is_recognised(self):
+        anchorage = next(
+            zone
+            for zone in get_maritime_zones({"ANC"})
+            if zone.locode == "HKABD"
+        )
+
+        result = classify_location(*polygon_interior_point(anchorage))
+
+        self.assertEqual(result["state"], "authorized")
+        self.assertEqual(result["zone_name"], anchorage.name)
+        self.assertIn("HKABD", result["reason"])
+
+    def test_bundled_hong_kong_and_macau_zones_are_available(self):
+        zones = get_maritime_zones(
+            ANCHORAGE_ZONE_TYPES | PORT_ZONE_TYPES
+        )
+
+        self.assertEqual(
+            sum(
+                zone.region == "香港"
+                and zone.zone_type in ANCHORAGE_ZONE_TYPES
+                for zone in zones
+            ),
+            12,
+        )
+        self.assertEqual(
+            sum(
+                zone.region == "香港"
+                and zone.zone_type in PORT_ZONE_TYPES
+                for zone in zones
+            ),
+            8,
+        )
+        self.assertEqual(
+            sum(
+                zone.region == "澳门"
+                and zone.zone_type in ANCHORAGE_ZONE_TYPES
+                for zone in zones
+            ),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                zone.region == "澳门"
+                and zone.zone_type in PORT_ZONE_TYPES
+                for zone in zones
+            ),
+            1,
+        )
 
 
 class IllegalAnchoredDetectorTests(TestCase):
@@ -137,6 +215,26 @@ class IllegalAnchoredDetectorTests(TestCase):
         )
         self.assertIn("AIS规则预警", payload["results"][0]["details"])
 
+    @override_settings(
+        ILLEGAL_ANCHORED_DETECTION={
+            "min_duration_seconds": 60,
+            "history_window_seconds": 600,
+        }
+    )
+    def test_detector_reads_runtime_parameter_settings(self):
+        start = timezone.now()
+        self.assertEqual(self._detect(start)["count"], 0)
+        self.assertEqual(
+            self._detect(start + timedelta(seconds=30))["count"],
+            0,
+        )
+
+        payload = self._detect(start + timedelta(seconds=60))
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["rule"]["min_duration_seconds"], 60)
+        self.assertEqual(payload["rule"]["history_window_seconds"], 600)
+
     def test_authorized_anchorage_does_not_alert(self):
         start = timezone.now()
         for minutes in (0, 3, 6):
@@ -161,9 +259,114 @@ class IllegalAnchoredDetectorTests(TestCase):
         )
         self.assertEqual(payload["count"], 0)
 
-    def test_low_speed_non_anchor_navigation_status_does_not_alert(self):
+    def test_explicit_anchor_status_still_requires_low_speed(self):
         start = timezone.now()
-        for nav_status in (0, 3, 5, 8):
+        self._detect(start)
+        self._detect(start + timedelta(minutes=3))
+        self._detect(
+            start + timedelta(minutes=4),
+            speed=3.5,
+            nav_status=1,
+        )
+
+        payload = self._detect(start + timedelta(minutes=8))
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_separate_anchor_episodes_have_different_event_ids(self):
+        start = timezone.now()
+        for minutes in (0, 3, 6):
+            first = self._detect(start + timedelta(minutes=minutes))
+
+        self._detect(
+            start + timedelta(minutes=7),
+            speed=3.5,
+            nav_status=1,
+        )
+        for minutes in (8, 11, 14):
+            second = self._detect(start + timedelta(minutes=minutes))
+
+        self.assertEqual(first["count"], 1)
+        self.assertEqual(second["count"], 1)
+        self.assertNotEqual(
+            first["results"][0]["event_id"],
+            second["results"][0]["event_id"],
+        )
+
+    def test_event_id_stays_stable_when_history_window_advances(self):
+        start = timezone.now()
+        alerts = []
+
+        for minutes in range(0, 37, 3):
+            payload = self._detect(start + timedelta(minutes=minutes))
+            if payload["count"]:
+                alerts.append(payload["results"][0])
+
+        self.assertGreater(len(alerts), 2)
+        self.assertEqual(
+            {alert["event_id"] for alert in alerts},
+            {alerts[0]["event_id"]},
+        )
+        self.assertEqual(
+            alerts[-1]["episode_started_at"],
+            start.isoformat(),
+        )
+        self.assertEqual(alerts[-1]["duration_seconds"], 36 * 60)
+
+    def test_hong_kong_and_macau_port_polygons_do_not_alert(self):
+        ports = get_maritime_zones(PORT_ZONE_TYPES)
+        for region in ("香港", "澳门"):
+            cache.clear()
+            port = next(zone for zone in ports if zone.region == region)
+            point = polygon_interior_point(port)
+            for minutes in (0, 3, 6):
+                payload = self._detect(
+                    timezone.now() + timedelta(minutes=minutes),
+                    point=point,
+                )
+            self.assertEqual(payload["count"], 0)
+
+    def test_low_speed_underway_status_alerts_after_five_minutes(self):
+        start = timezone.now()
+        for minutes in (0, 3, 6):
+            payload = self._detect(
+                start + timedelta(minutes=minutes),
+                speed=0.0,
+                nav_status=0,
+            )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 360)
+
+    def test_status_zero_large_displacement_resets_episode(self):
+        start = timezone.now()
+        first_point = (113.9634, 22.3049)
+        moved_point = (113.9664, 22.3049)
+        self._detect(
+            start,
+            point=first_point,
+            speed=0.0,
+            nav_status=0,
+        )
+        self._detect(
+            start + timedelta(minutes=3),
+            point=first_point,
+            speed=0.0,
+            nav_status=0,
+        )
+
+        payload = self._detect(
+            start + timedelta(minutes=6),
+            point=moved_point,
+            speed=0.0,
+            nav_status=0,
+        )
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_low_speed_excluded_navigation_status_does_not_alert(self):
+        start = timezone.now()
+        for nav_status in (3, 5, 8):
             cache.clear()
             for minutes in (0, 3, 6):
                 payload = self._detect(

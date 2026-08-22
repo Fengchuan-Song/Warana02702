@@ -14,6 +14,8 @@ from django.core.management.base import BaseCommand, CommandError
 import pandas as pd
 
 from AISData.consumers import AisConsumer
+from AISData.trajectory_history import append_ais_history
+from AISRadar.anomaly_detection import publish_fusion_detection_results
 from AISRadar.fusion_state import clear_fusion_state, publish_fusion_result
 from AISRadar.inference.data import (
     DataValidationError,
@@ -134,7 +136,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--interval",
             type=float,
-            default=1.0,
+            default=30.0,
             help="Wall-clock seconds between simulated frames (default: 1.0).",
         )
         parser.add_argument(
@@ -233,7 +235,7 @@ class Command(BaseCommand):
             timestamps = timestamps[: options["max_frames"]]
 
         clear_fusion_state()
-        self._send_fusion_state(channel_layer, {
+        empty_fusion_state = {
             "available": False,
             "updated_at": None,
             "source_start_time": None,
@@ -242,7 +244,11 @@ class Command(BaseCommand):
             "ais_ids": [],
             "radar_ids": [],
             "matches": [],
-        })
+            "unmatched_ais_targets": [],
+            "unmatched_radar_targets": [],
+        }
+        self._send_fusion_state(channel_layer, empty_fusion_state)
+        publish_fusion_detection_results(empty_fusion_state, channel_layer)
         self.stdout.write(
             self.style.NOTICE(
                 f"Scene {scene_id}: {len(timestamps)} common frames, "
@@ -257,6 +263,7 @@ class Command(BaseCommand):
             ais_snapshot = build_ais_snapshot(ais_frame, timestamp)
             radar_snapshot = build_radar_snapshot(radar_frame, timestamp)
 
+            append_ais_history(ais_snapshot)
             timeout = getattr(settings, "CACHE_TTL", 300)
             cache.set(
                 AisConsumer.AIS_RADAR_REPLAY_AIS_CACHE_KEY,
@@ -283,6 +290,7 @@ class Command(BaseCommand):
                     fusion_state = publish_fusion_result(result)
                     match_count = fusion_state["count"]
                     self._send_fusion_state(channel_layer, fusion_state)
+                    publish_fusion_detection_results(fusion_state, channel_layer)
                 except DataValidationError as exc:
                     self.stdout.write(
                         self.style.WARNING(

@@ -6,20 +6,27 @@ from pathlib import Path
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
-import torch
-import torch_geometric
 
-from .inference.data import DataValidationError
-from .inference.predictor import (
-    DEFAULT_CHECKPOINT_SHA256,
-    InferenceConfig,
-    checkpoint_sha256,
-    get_matcher,
-)
+from .anomaly_detection import publish_fusion_detection_results
 from .fusion_state import get_fusion_state, publish_fusion_result
 
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_CHECKPOINT_SHA256 = "94B1EECE8BA74C603CED986B027CF74753761929389B290AFB4FF2AD8FFA2D4E"
+
+
+def checkpoint_sha256(path):
+    """Load the model helper only for an AIS/Radar inference request."""
+    from .inference.predictor import checkpoint_sha256 as calculate_checkpoint_sha256
+
+    return calculate_checkpoint_sha256(path)
+
+
+def get_matcher(config):
+    """Load PyTorch lazily instead of in every Django worker process."""
+    from .inference.predictor import get_matcher as load_matcher
+
+    return load_matcher(config)
 
 
 def _options():
@@ -37,6 +44,8 @@ def _options():
 
 
 def _config():
+    from .inference.predictor import InferenceConfig
+
     options = _options()
     return InferenceConfig(
         checkpoint_path=Path(options["weights"]),
@@ -66,6 +75,9 @@ def _optional_positive_int(value, field_name):
 
 @require_GET
 def health(request):
+    import torch
+    import torch_geometric
+
     config = _config()
     checkpoint_exists = config.checkpoint_path.is_file()
     actual_hash = checkpoint_sha256(config.checkpoint_path) if checkpoint_exists else None
@@ -120,8 +132,11 @@ def match(request):
             max_windows=max_windows,
         )
         result["fusion_state"] = publish_fusion_result(result)
+        result["detections"] = publish_fusion_detection_results(
+            result["fusion_state"]
+        )
         return JsonResponse(result, json_dumps_params={"ensure_ascii": False})
-    except (DataValidationError, ValueError) as exc:
+    except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     except (FileNotFoundError, RuntimeError) as exc:
         LOGGER.exception("AIS/Radar inference is unavailable")

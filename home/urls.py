@@ -8,10 +8,16 @@ from .views import (
     current_typhoons,
     guangdong_marine_weather,
     index,
+    model_parameter_page,
 )
 
 urlpatterns = [
     path("", index, name='index'),
+    path(
+        "model-parameters/",
+        model_parameter_page,
+        name="model_parameter_page",
+    ),
     path(
         "api/cameras/",
         camera_collection,

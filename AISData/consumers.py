@@ -8,12 +8,30 @@ from AISData.normalization import normalise_ais_snapshot
 from AISRadar.fusion_state import get_fusion_state
 
 
-def load_initial_realtime_state():
-    """Load the state a client may have missed before it connected."""
-    return (
-        normalise_ais_snapshot(cache.get('latest_ais_data_raw', [])),
-        get_cached_detection_results(),
-    )
+def load_initial_ais_state():
+    """Load the latest AIS state a client may have missed."""
+    return normalise_ais_snapshot(cache.get('latest_ais_data_raw', []))
+
+
+def load_initial_detection_state():
+    """Load detector results produced before a violation client connected."""
+    return get_cached_detection_results()
+
+
+def filter_empty_detection_results(detection_results):
+    """Remove detector snapshots that explicitly contain no violations."""
+    if not isinstance(detection_results, dict):
+        return {}
+
+    return {
+        feature_id: payload
+        for feature_id, payload in detection_results.items()
+        if not (
+            isinstance(payload, dict)
+            and payload.get('count') == 0
+            and payload.get('results') == []
+        )
+    }
 
 
 def load_initial_ais_radar_state():
@@ -23,6 +41,7 @@ def load_initial_ais_radar_state():
         cache.get(AisConsumer.RADAR_CACHE_KEY, []),
         get_fusion_state(),
     )
+
 
 class AisConsumer(AsyncWebsocketConsumer):
     # 实时 AIS 数据群组名
@@ -42,21 +61,15 @@ class AisConsumer(AsyncWebsocketConsumer):
         )
 
         # Redis/Channels groups only deliver future messages. Replay the
-        # latest cached state so a refreshed or late client does not remain
-        # stuck at "等待后端检测".
-        ais_data, detection_results = await sync_to_async(
-            load_initial_realtime_state,
+        # latest cached AIS state for refreshed or late clients.
+        ais_data = await sync_to_async(
+            load_initial_ais_state,
             thread_sensitive=True,
         )()
         if ais_data:
             await self.send(text_data=json.dumps({
                 'type': 'ais_update',
                 'data': ais_data,
-            }))
-        if detection_results:
-            await self.send(text_data=json.dumps({
-                'type': 'detection_update',
-                'data': detection_results,
             }))
 
         replay_ais_data, radar_data, fusion_state = await sync_to_async(
@@ -101,13 +114,6 @@ class AisConsumer(AsyncWebsocketConsumer):
             'data': ais_data
         }))
 
-    async def send_detection_update(self, event):
-        """Push results produced by the backend detection pipeline."""
-        await self.send(text_data=json.dumps({
-            'type': 'detection_update',
-            'data': event['results']
-        }))
-
     async def send_radar_update(self, event):
         """Push one simulated Radar frame to connected clients."""
         await self.send(text_data=json.dumps({
@@ -132,3 +138,45 @@ class AisConsumer(AsyncWebsocketConsumer):
     # 4. (可选) 接收客户端消息时 (此场景用不到)
     # async def receive(self, text_data):
     #     pass
+
+
+class ViolationConsumer(AsyncWebsocketConsumer):
+    """Push violation detection results on a dedicated WebSocket."""
+
+    GROUP_NAME = 'violation_updates'
+
+    async def connect(self):
+        await self.accept()
+        await self.channel_layer.group_add(
+            self.GROUP_NAME,
+            self.channel_name,
+        )
+
+        # A new connection may have missed the latest broadcast, so replay
+        # every detector result currently held in the shared cache.
+        detection_results = await sync_to_async(
+            load_initial_detection_state,
+            thread_sensitive=True,
+        )()
+        detection_results = filter_empty_detection_results(detection_results)
+        if detection_results:
+            await self.send(text_data=json.dumps({
+                'type': 'detection_update',
+                'data': detection_results,
+            }))
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(
+            self.GROUP_NAME,
+            self.channel_name,
+        )
+
+    async def send_detection_update(self, event):
+        detection_results = filter_empty_detection_results(event.get('results'))
+        if not detection_results:
+            return
+
+        await self.send(text_data=json.dumps({
+            'type': 'detection_update',
+            'data': detection_results,
+        }))

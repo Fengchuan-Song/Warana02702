@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from AISData.consumers import AisConsumer
 from AISData.detection_queue import enqueue_all_detections
 from AISData.normalization import normalise_ais_name
+from AISData.trajectory_history import append_ais_history
 from WanAna02702.settings import BASE_DIR
 from django.core.cache import cache
 from django.utils import timezone
@@ -117,6 +118,23 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE(f"Skipping row due to data conversion error: {e}. Row: {row}"))
             return None
 
+    def convert_rows(self, rows):
+        """Return the latest snapshot plus every valid observation for history."""
+        latest_by_mmsi = {}
+        history_points = []
+        for row in rows:
+            converted_ship = self.convert_row(row)
+            if not converted_ship or not converted_ship["mmsi"]:
+                continue
+            history_points.append(converted_ship)
+            current = latest_by_mmsi.get(converted_ship["mmsi"])
+            if (
+                current is None
+                or converted_ship["timestamp"] >= current["timestamp"]
+            ):
+                latest_by_mmsi[converted_ship["mmsi"]] = converted_ship
+        return list(latest_by_mmsi.values()), history_points
+
 
     def handle(self, *args, **options):
         channel_layer = get_channel_layer()
@@ -125,7 +143,7 @@ class Command(BaseCommand):
         # 【新增】存储已处理文件名的集合
         processed_files = set()
         # 扫描间隔（秒）
-        SCAN_INTERVAL = 10 
+        SCAN_INTERVAL = 60 
         
         # 强制等待 5 秒，确保 Channels Layer 订阅完成 (保留此修复)
         # self.stdout.write(self.style.WARNING("Waiting 5 seconds for Channels Layer setup..."))
@@ -152,30 +170,22 @@ class Command(BaseCommand):
                 # 3. 遍历并处理新增文件
                 for latest_file in new_files_to_process:
                     file_path = os.path.join(AIS_FOLDER, latest_file)
-                    ais_data = []
-
-                    # 支持数据清洗
-                    ais_data_clean = {}
-                    
                     self.stdout.write(f"Processing file: {latest_file}...")
                     
                     # 4. 读取 CSV 文件内容并解析
                     with open(file_path, 'r', encoding='utf-8') as f:
                         reader = csv.DictReader(f)
-                        for row in reader:
-                            converted_ship = self.convert_row(row)
-                            if converted_ship and converted_ship['mmsi']:
-                                # 只保留一条数据
-                                ais_data_clean[converted_ship['mmsi']] = converted_ship
-                    
-                    for key in ais_data_clean.keys():
-                        ais_data.append(ais_data_clean[key])
+                        ais_data, ais_history_points = self.convert_rows(reader)
                                 
                     
                     if not ais_data:
                         self.stdout.write(self.style.WARNING(f"File {latest_file} is empty or invalid after parsing. Skipping."))
                         processed_files.add(latest_file) # 即使跳过，也要标记为已处理
                         continue
+
+                    # 前端和检测器仍接收每艘船的最新状态；文件内全部有效
+                    # 观测点另存入滚动历史，供违法事件补齐识别前航迹。
+                    append_ais_history(ais_history_points)
 
                     # 将数据存储到Redis中
                     cache.set(
@@ -214,7 +224,7 @@ class Command(BaseCommand):
                     processed_files.add(latest_file)
                     
                     # 【重要】每次推送后短暂等待，模拟数据间隔和避免 Redis 拥堵
-                    time.sleep(1) 
+                    time.sleep(SCAN_INTERVAL) 
 
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"AIS worker encountered a major error: {e}"))

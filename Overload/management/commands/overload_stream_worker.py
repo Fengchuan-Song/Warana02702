@@ -10,8 +10,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections
 from django.utils import timezone
 
-from AISData.consumers import AisConsumer
+from AISData.consumers import ViolationConsumer
 from AISData.detection import detection_cache_key
+from AISData.violation_records import persist_detection_payload
 from home.consumers import camera_stream_group_name
 from home.models import CameraConfiguration
 
@@ -182,8 +183,9 @@ class Command(BaseCommand):
                     payload,
                     timeout=getattr(settings, "CACHE_TTL", 300),
                 )
+                persist_detection_payload(FEATURE_ID, payload)
                 async_to_sync(channel_layer.group_send)(
-                    AisConsumer.AIS_GROUP_NAME,
+                    ViolationConsumer.GROUP_NAME,
                     {
                         "type": "send_detection_update",
                         "results": {FEATURE_ID: payload},

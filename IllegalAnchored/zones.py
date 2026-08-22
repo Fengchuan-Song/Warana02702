@@ -21,6 +21,8 @@ the competent maritime authority.
 
 from math import asin, cos, radians, sin, sqrt
 
+from AISData.maritime_zones import find_authorized_anchorage
+
 
 SOURCE_METADATA = {
     "regulation": {
@@ -374,6 +376,17 @@ def classify_location(lon, lat):
                 "zone_name": zone["name"],
                 "reason": "位于已公布锚地范围内",
             }
+
+    dataset_anchorage = find_authorized_anchorage(lon, lat)
+    if dataset_anchorage is not None:
+        return {
+            "state": "authorized",
+            "zone_name": dataset_anchorage.name,
+            "reason": (
+                "位于系统海事区域数据集锚地范围内"
+                f"（{dataset_anchorage.locode}）"
+            ),
+        }
 
     for area in DETECTION_AREAS:
         min_lon, min_lat, max_lon, max_lat = area["bounds"]

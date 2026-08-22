@@ -5,6 +5,7 @@ from AISData.views import cached_detection_result
 from .views import (
     permit_collection,
     permit_detail,
+    port_collection,
     zone_collection,
     zone_detail,
 )
@@ -17,6 +18,7 @@ urlpatterns = [
         name="detect_smuggling",
     ),
     path("zones/", zone_collection, name="smuggling_zone_collection"),
+    path("ports/", port_collection, name="smuggling_port_collection"),
     path(
         "zones/<int:zone_id>/",
         zone_detail,

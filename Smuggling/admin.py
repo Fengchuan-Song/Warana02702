@@ -22,10 +22,10 @@ class SmugglingVoyagePermitAdmin(admin.ModelAdmin):
         "mmsi",
         "permit_number",
         "origin_zone",
-        "destination_zone",
+        "destination_port_id",
         "valid_from",
         "valid_until",
         "is_active",
     )
-    list_filter = ("is_active", "origin_zone", "destination_zone")
+    list_filter = ("is_active", "origin_zone", "destination_port_id")
     search_fields = ("mmsi", "permit_number", "notes")

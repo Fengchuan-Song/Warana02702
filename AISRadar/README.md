@@ -41,7 +41,8 @@ keys and WebSocket message types; the browser merges their current snapshots by
 MMSI. If the same MMSI appears in both sources, the operational `ais_worker`
 position takes precedence while the fusion state can still color it dark red.
 
-To start Redis (when necessary), Daphne, `ais_worker`, and the fusion replay
+To start Redis (when necessary), Daphne, `ais_worker`, the fusion replay, all
+registered AIS detection workers, the camera stream, and overload detection
 together in the background, use the project launcher:
 
 ```powershell
@@ -50,7 +51,23 @@ together in the background, use the project launcher:
 .\scripts\ais_radar_demo.ps1 stop
 ```
 
+The launcher manages one PID per registered detector, so `stop` does not leave
+the child processes that `detection_supervisor` would otherwise spawn. CloseAIS
+and Forgery run inside the fusion replay and do not need separate workers. Use
+`-StartDetectors:$false` or `-StartVideoDetection:$false` to disable those groups.
+
 Runtime PID files and logs are written under `.runtime/ais-radar-demo`.
+
+## Fusion anomaly detectors
+
+Every completed fusion window also drives two association-based detectors:
+
+- `CloseAIS` / `detect-ais-off`: Radar trajectories with no matched AIS target;
+- `Forgery` / `detect-spoofing`: AIS trajectories with no matched Radar target.
+
+Their latest payloads are available from `/CloseAIS/`, `/Forgery/`, and the
+generic `/AISData/detection-results/<feature-id>/` endpoint. Results are also
+broadcast through the existing detection WebSocket message.
 
 By default only the latest six-frame window is inferred. Optional form fields:
 

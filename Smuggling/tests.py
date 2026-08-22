@@ -1,11 +1,24 @@
 import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import Client, RequestFactory, TestCase, override_settings
+from django.test import (
+    Client,
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 from django.urls import resolve, reverse
 
 from AISData.views import cached_detection_result
+from AISData.guangdong_coastline import (
+    CoastRelation,
+    guangdong_nearshore_relation,
+    load_guangdong_coastline,
+)
+from AISData.maritime_zones import MaritimeZone
 
 from .models import SmugglingVoyagePermit, SmugglingZone
 from .views import (
@@ -35,6 +48,8 @@ TEST_CONFIG = {
     "landing_speed_knots": 1.5,
     "landing_minimum_duration_seconds": 60,
     "landing_minimum_observations": 2,
+    "guangdong_nearshore_range_metres": 5000,
+    "guangdong_port_buffer_metres": 3000,
     "draught_change_metres": 0.5,
     "small_craft_length_metres": 50,
     "fast_craft_speed_knots": 15,
@@ -42,12 +57,68 @@ TEST_CONFIG = {
     "minimum_risk_score": 40,
 }
 
+TEST_GUANGDONG_PORT = MaritimeZone(
+    source_id=9001,
+    name="广东测试港",
+    description="测试港口",
+    locode="CNZUH",
+    zone_type="PRT",
+    points=(
+        (114.30, 22.20),
+        (114.31, 22.20),
+        (114.31, 22.21),
+        (114.30, 22.21),
+    ),
+    bounds=(114.30, 22.20, 114.31, 22.21),
+    area=0.0001,
+)
+
+
+class GuangdongCoastlineResourceTests(SimpleTestCase):
+    def test_bundled_resource_has_guangdong_osm_metadata(self):
+        coastline = load_guangdong_coastline()
+
+        self.assertGreater(len(coastline["segments"]), 10_000)
+        self.assertEqual(
+            coastline["metadata"]["boundary_relation_id"],
+            911844,
+        )
+
+    def test_real_coastline_distinguishes_nearshore_and_offshore_points(self):
+        nearshore = guangdong_nearshore_relation(114.5, 22.5, 5000)
+        offshore = guangdong_nearshore_relation(114.2, 22.2, 5000)
+
+        self.assertTrue(nearshore.near)
+        self.assertLess(nearshore.distance_metres, 5000)
+        self.assertFalse(offshore.near)
+
 
 @override_settings(CACHES=TEST_CACHES, SMUGGLING_DETECTION=TEST_CONFIG)
 class SmugglingDetectionTests(TestCase):
     base_time = datetime(2026, 7, 24, 13, 0, tzinfo=timezone.utc)
 
     def setUp(self):
+        port_patcher = patch(
+            "Smuggling.views.get_maritime_zones",
+            return_value=(TEST_GUANGDONG_PORT,),
+        )
+        port_patcher.start()
+        self.addCleanup(port_patcher.stop)
+        coastline_patcher = patch(
+            "Smuggling.views.load_guangdong_coastline",
+            return_value={"segments": (((114.18, 22.20), (114.40, 22.20)),)},
+        )
+        coastline_patcher.start()
+        self.addCleanup(coastline_patcher.stop)
+        relation_patcher = patch(
+            "Smuggling.views.guangdong_nearshore_relation",
+            side_effect=lambda longitude, latitude, range_metres: CoastRelation(
+                near=longitude >= 114.18,
+                distance_metres=1000.0 if longitude >= 114.18 else float("inf"),
+            ),
+        )
+        relation_patcher.start()
+        self.addCleanup(relation_patcher.stop)
         cache.delete(SMUGGLING_STATE_CACHE_KEY)
         cache.delete(SMUGGLING_EVENT_CACHE_KEY)
         SmugglingVoyagePermit.objects.all().delete()
@@ -63,17 +134,7 @@ class SmugglingDetectionTests(TestCase):
                 [114.00, 22.30],
             ],
         )
-        self.destination = SmugglingZone.objects.create(
-            name="广东非设关测试点",
-            zone_type=SmugglingZone.NON_CUSTOMS_LANDING,
-            vertices=[
-                [114.20, 22.20],
-                [114.21, 22.20],
-                [114.21, 22.21],
-                [114.20, 22.21],
-            ],
-            buffer_metres=3000,
-        )
+        self.destination = TEST_GUANGDONG_PORT
 
     def ship(
         self,
@@ -120,7 +181,7 @@ class SmugglingDetectionTests(TestCase):
         self.call([self.ship(114.06, 22.25, seconds=30)])
         return self.call([self.ship(114.12, 22.25, seconds=60)])
 
-    def test_night_hong_kong_departure_and_approach_is_risk(self):
+    def test_night_hong_kong_departure_and_non_port_nearshore_is_risk(self):
         self.establish_departure()
         payload = self.call(
             [self.ship(114.19, 22.205, seconds=90)]
@@ -132,10 +193,12 @@ class SmugglingDetectionTests(TestCase):
         self.assertEqual(event["event"], "Smuggling")
         self.assertEqual(event["risk"], "中风险")
         self.assertTrue(event["night_departure"])
-        self.assertFalse(event["inside_destination_zone"])
+        self.assertTrue(event["inside_guangdong_nearshore"])
+        self.assertFalse(event["inside_guangdong_port_buffer"])
         self.assertEqual(
-            event["destination_zone_id"], self.destination.id
+            event["destination_type"], "guangdong_non_port_nearshore"
         )
+        self.assertEqual(event["distance_to_coast_metres"], 1000.0)
         self.assertEqual(event["ship_type"], "cargo")
         self.assertEqual(event["draught"], 2.0)
         self.assertEqual(event["length"], 30.0)
@@ -147,7 +210,7 @@ class SmugglingDetectionTests(TestCase):
         first_inside = self.call(
             [
                 self.ship(
-                    114.205,
+                    114.19,
                     22.205,
                     seconds=120,
                     speed=1,
@@ -158,7 +221,7 @@ class SmugglingDetectionTests(TestCase):
         confirmed = self.call(
             [
                 self.ship(
-                    114.205,
+                    114.19,
                     22.205,
                     seconds=180,
                     speed=0.5,
@@ -169,7 +232,7 @@ class SmugglingDetectionTests(TestCase):
             ]
         )
 
-        self.assertEqual(first_inside["results"][0]["risk"], "高风险")
+        self.assertEqual(first_inside["results"][0]["risk"], "中风险")
         self.assertEqual(confirmed["count"], 1)
         event = confirmed["results"][0]
         self.assertEqual(event["risk"], "极高风险")
@@ -178,42 +241,52 @@ class SmugglingDetectionTests(TestCase):
         self.assertIn("航次吃水变化明显", event["risk_reasons"])
         self.assertIn("AIS停靠标志", event["risk_reasons"])
 
-    def test_valid_permit_suppresses_destination_warning(self):
+    def test_approaching_guangdong_port_is_normal_navigation(self):
         SmugglingVoyagePermit.objects.create(
             mmsi="477123456",
             permit_number="TEST-001",
             origin_zone=self.origin,
-            destination_zone=self.destination,
+            destination_port_id=self.destination.source_id,
             valid_from=self.base_time - timedelta(hours=1),
             valid_until=self.base_time + timedelta(hours=2),
         )
         self.establish_departure()
         payload = self.call(
-            [self.ship(114.205, 22.205, seconds=90, speed=1)]
+            [self.ship(114.295, 22.205, seconds=90, speed=1)]
         )
 
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["authorized_count"], 1)
+        self.assertEqual(payload["normal_port_count"], 1)
 
-    def test_legal_customs_port_takes_priority(self):
-        SmugglingZone.objects.create(
-            name="合法口岸",
-            zone_type=SmugglingZone.CUSTOMS_PORT,
-            vertices=self.destination.vertices,
-            buffer_metres=3000,
-        )
+    def test_guangdong_port_is_normal_even_without_permit(self):
         self.establish_departure()
         payload = self.call(
-            [self.ship(114.205, 22.205, seconds=90, speed=1)]
+            [self.ship(114.305, 22.205, seconds=90, speed=1)]
         )
 
         self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["authorized_count"], 0)
+        self.assertEqual(payload["normal_port_count"], 1)
+
+    def test_port_approach_removes_existing_non_port_risk_event(self):
+        self.establish_departure()
+        risk_payload = self.call(
+            [self.ship(114.19, 22.205, seconds=90)]
+        )
+        normal_payload = self.call(
+            [self.ship(114.295, 22.205, seconds=120, speed=2)]
+        )
+
+        self.assertEqual(risk_payload["count"], 1)
+        self.assertEqual(normal_payload["count"], 0)
+        self.assertEqual(normal_payload["normal_port_count"], 1)
 
     def test_single_origin_fix_does_not_establish_departure(self):
         self.call([self.ship(114.05, 22.25)])
         self.call([self.ship(114.12, 22.25, seconds=30)])
         payload = self.call(
-            [self.ship(114.205, 22.205, seconds=60, speed=1)]
+            [self.ship(114.19, 22.205, seconds=60, speed=1)]
         )
 
         self.assertEqual(payload["count"], 0)
@@ -275,18 +348,24 @@ class SmugglingDetectionTests(TestCase):
         self.assertEqual(event["risk"], "高风险")
 
     def test_missing_required_zone_configuration_is_reported(self):
-        self.destination.delete()
+        self.origin.delete()
         payload = self.call([self.ship(114.05, 22.25)])
 
         self.assertEqual(payload["count"], 0)
         self.assertTrue(payload["success"])
         self.assertFalse(payload["configured"])
-        self.assertIn("请先配置", payload["message"])
+        self.assertEqual(payload["message"], "请先启用香港地区空间范围")
 
 
 @override_settings(CACHES=TEST_CACHES)
 class SmugglingManagementApiTests(TestCase):
     def setUp(self):
+        port_patcher = patch(
+            "Smuggling.views.get_maritime_zones",
+            return_value=(TEST_GUANGDONG_PORT,),
+        )
+        port_patcher.start()
+        self.addCleanup(port_patcher.stop)
         SmugglingVoyagePermit.objects.all().delete()
         SmugglingZone.objects.all().delete()
         self.client = Client()
@@ -338,9 +417,6 @@ class SmugglingManagementApiTests(TestCase):
         origin = self.create_zone(
             "香港起航区", SmugglingZone.HONG_KONG_ORIGIN
         )
-        destination = self.create_zone(
-            "非设关点", SmugglingZone.NON_CUSTOMS_LANDING
-        )
         response = self.client.post(
             reverse("smuggling_permit_collection"),
             data=json.dumps(
@@ -348,7 +424,7 @@ class SmugglingManagementApiTests(TestCase):
                     "mmsi": "477123456",
                     "permit_number": "PERMIT-001",
                     "origin_zone_id": origin["id"],
-                    "destination_zone_id": destination["id"],
+                    "destination_port_id": TEST_GUANGDONG_PORT.source_id,
                     "valid_from": "2026-07-24T00:00:00+08:00",
                     "valid_until": "2026-07-25T00:00:00+08:00",
                     "is_active": True,
@@ -375,6 +451,16 @@ class SmugglingManagementApiTests(TestCase):
         self.assertEqual(patched.json()["result"]["notes"], "应急报告")
         self.assertEqual(listed.json()["count"], 1)
 
+    def test_guangdong_port_collection_uses_bundled_dataset(self):
+        response = self.client.get(reverse("smuggling_port_collection"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(
+            response.json()["results"][0]["id"],
+            TEST_GUANGDONG_PORT.source_id,
+        )
+
     def test_legacy_smuggling_url_reads_cached_detector_result(self):
         match = resolve("/Smuggling/detectSmuggling/")
 
@@ -394,6 +480,7 @@ class SmugglingManagementApiTests(TestCase):
         self.assertContains(response, 'id="smuggling-zone-save"')
         self.assertContains(response, 'id="smuggling-permit-save"')
         self.assertContains(response, "function loadSmugglingZones()")
+        self.assertContains(response, "function loadSmugglingPorts()")
         self.assertContains(response, "function saveSmugglingZone()")
         self.assertContains(response, "function editSmugglingZone(")
         self.assertContains(response, "function deleteSmugglingZone(")

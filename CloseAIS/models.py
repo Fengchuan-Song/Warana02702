@@ -1,3 +1,1 @@
-from django.db import models
-
-# Create your models here.
+"""CloseAIS currently publishes transient detections through Redis."""

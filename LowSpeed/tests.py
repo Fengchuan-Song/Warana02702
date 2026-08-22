@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import (
@@ -184,6 +185,20 @@ class LowSpeedDetectorTests(TestCase):
         )
         self.assertEqual(payload["count"], 0)
         self.assertEqual(LowSpeedPoint.objects.count(), 0)
+
+    @patch(
+        "LowSpeed.views.zones_containing_point",
+        return_value=(object(),),
+    )
+    def test_position_inside_port_or_terminal_zone_does_not_alert(
+        self,
+        mock_zones_containing_point,
+    ):
+        payload, _ = self.feed()
+
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(LowSpeedPoint.objects.count(), 0)
+        mock_zones_containing_point.assert_called()
 
     def test_latest_record_per_mmsi_is_used(self):
         _, payload = self.call_view(

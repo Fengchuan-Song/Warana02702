@@ -26,7 +26,12 @@ SECRET_KEY = "django-insecure-*r)vh3k)2a_kd2jwt9ur87o&g)mbf=v#1ds8$e85i*f0p(-t6s
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['10.150.50.125', 'localhost', '127.0.0.1', '10.150.50.74']
+ALLOWED_HOSTS = ['10.150.50.125', 'localhost', '127.0.0.1', '10.150.50.74', '10.93.98.8', '0.0.0.0']
+ALLOWED_HOSTS.extend(
+    host.strip()
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+)
 
 
 # Application definition
@@ -42,6 +47,7 @@ INSTALLED_APPS = [
     "AISData",
     "home",
     "AISRadar",
+    "CloseAIS",
     "VISAIS",
     "UAVVISAIS",
     "VISINF",
@@ -184,6 +190,16 @@ CACHES = {
 # 设置缓存过期时间（可选，默认 5 分钟）
 CACHE_TTL = 60 * 5
 
+# 为违法事件补存识别前的 AIS 航迹。历史按 MMSI 分开缓存，既能跨越
+# ais_worker / detection_worker 进程读取，也避免一个全局大对象反复序列化。
+AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS = 30 * 60
+AIS_TRAJECTORY_HISTORY_CACHE_TTL = 2 * 60 * 60
+AIS_TRAJECTORY_HISTORY_MAX_POINTS_PER_SHIP = 500
+AIS_TRAJECTORY_MIN_DISTANCE_METERS = 3.0
+# 即使船舶位置变化不足最小距离，也按固定时间间隔保留一个点，
+# 用于证明抛锚、驻留等静止状态在时间上的连续性。
+AIS_TRAJECTORY_MAX_INTERVAL_SECONDS = 3 * 60
+
 # 模拟摄像头实时推流。独立 management command 会持续循环 Data/Video
 # 中的全部视频；是否存在前端观看者不会影响推流进程的启停。
 CAMERA_STREAM = {
@@ -233,6 +249,15 @@ ABNORMAL_PARKING = {
     ],
 }
 
+# 非法抛锚检测：港口/码头及合法锚地内不预警。
+ILLEGAL_ANCHORED_DETECTION = {
+    "max_speed_knots": 0.5,
+    "min_duration_seconds": 300,
+    "min_observations": 3,
+    "max_drift_metres": 250,
+    "history_window_seconds": 1800,
+}
+
 # 非法驻留检测：只有在明确配置的禁停区域内持续低速停留才预警。
 ILLEGAL_STAYING = {
     "analysis_window_minutes": 120,
@@ -261,8 +286,8 @@ ILLEGAL_STAYING = {
 
 # 异常徘徊检测参数。启用的 MonitorRegion 数据库记录会覆盖默认监控区域。
 ABNORMAL_WANDERING = {
-    "analysis_window_minutes": 30,
-    "retention_window_minutes": 60,
+    "analysis_window_minutes": 60,
+    "retention_window_minutes": 120,
     "min_points": 10,
     "min_duration_minutes": 10,
     "min_path_distance_metres": 300,
@@ -351,6 +376,10 @@ SMUGGLING_DETECTION = {
     "landing_speed_knots": 1.5,
     "landing_minimum_duration_seconds": 300,
     "landing_minimum_observations": 3,
+    # 香港起航船舶进入距广东海岸线 5 公里范围后才进入近岸研判。
+    "guangdong_nearshore_range_metres": 5000,
+    # 全部已录入广东港口向外扩展 3 公里，命中即按正常港口航行排除。
+    "guangdong_port_buffer_metres": 3000,
     "draught_change_metres": 0.5,
     "small_craft_length_metres": 50,
     "fast_craft_speed_knots": 15,

@@ -4,12 +4,8 @@ from django.db import models
 
 class SmugglingZone(models.Model):
     HONG_KONG_ORIGIN = "hong_kong_origin"
-    CUSTOMS_PORT = "customs_port"
-    NON_CUSTOMS_LANDING = "non_customs_landing"
     ZONE_TYPE_CHOICES = [
-        (HONG_KONG_ORIGIN, "香港起航区"),
-        (CUSTOMS_PORT, "合法口岸/海关监管区"),
-        (NON_CUSTOMS_LANDING, "广东非设关靠泊区"),
+        (HONG_KONG_ORIGIN, "香港地区空间范围"),
     ]
 
     name = models.CharField(max_length=100, unique=True, verbose_name="区域名称")
@@ -75,16 +71,11 @@ class SmugglingVoyagePermit(models.Model):
         limit_choices_to={"zone_type": SmugglingZone.HONG_KONG_ORIGIN},
         verbose_name="许可起航区",
     )
-    destination_zone = models.ForeignKey(
-        SmugglingZone,
+    destination_port_id = models.PositiveBigIntegerField(
         blank=True,
         null=True,
-        on_delete=models.SET_NULL,
-        related_name="destination_permits",
-        limit_choices_to={
-            "zone_type": SmugglingZone.NON_CUSTOMS_LANDING
-        },
-        verbose_name="许可目的区域",
+        db_index=True,
+        verbose_name="许可目的广东港口数据ID",
     )
     valid_from = models.DateTimeField(verbose_name="有效期开始")
     valid_until = models.DateTimeField(verbose_name="有效期结束")
@@ -121,11 +112,5 @@ class SmugglingVoyagePermit(models.Model):
             != SmugglingZone.HONG_KONG_ORIGIN
         ):
             errors["origin_zone"] = "起航区必须是香港起航区"
-        if (
-            self.destination_zone
-            and self.destination_zone.zone_type
-            != SmugglingZone.NON_CUSTOMS_LANDING
-        ):
-            errors["destination_zone"] = "目的区域必须是非设关靠泊区"
         if errors:
             raise ValidationError(errors)

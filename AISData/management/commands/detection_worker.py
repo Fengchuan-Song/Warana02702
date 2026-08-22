@@ -6,7 +6,7 @@ from django.core.cache import cache
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
-from AISData.consumers import AisConsumer
+from AISData.consumers import ViolationConsumer
 from AISData.detection import DETECTORS, run_detector
 from AISData.detection_queue import wait_for_detection_trigger
 
@@ -62,7 +62,7 @@ class Command(BaseCommand):
 
                     def push_detection_result(_, payload):
                         async_to_sync(channel_layer.group_send)(
-                            AisConsumer.AIS_GROUP_NAME,
+                            ViolationConsumer.GROUP_NAME,
                             {
                                 "type": "send_detection_update",
                                 "results": {feature_id: payload},

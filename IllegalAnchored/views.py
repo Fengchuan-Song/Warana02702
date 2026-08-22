@@ -1,24 +1,58 @@
 import math
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET
 
+from AISData.maritime_zones import (
+    MaritimeZoneDataError,
+    PORT_ZONE_TYPES,
+    zones_containing_point,
+)
 from AISData.normalization import normalise_ais_name
 
 from .zones import SOURCE_METADATA, classify_location, distance_m
 
 
-MAX_ANCHOR_SPEED_KNOTS = 0.5
-MIN_ANCHOR_DURATION_SECONDS = 300
-MIN_OBSERVATIONS = 3
-MAX_ANCHOR_DRIFT_METRES = 250
-HISTORY_WINDOW_SECONDS = 1800
+DEFAULT_ILLEGAL_ANCHORED_CONFIG = {
+    "max_speed_knots": 0.5,
+    "min_duration_seconds": 300,
+    "min_observations": 3,
+    "max_drift_metres": 250.0,
+    "history_window_seconds": 1800,
+}
 HISTORY_CACHE_KEY = "illegal_anchored:history:v1"
 HISTORY_CACHE_TIMEOUT = 24 * 60 * 60
+
+
+def _config():
+    config = DEFAULT_ILLEGAL_ANCHORED_CONFIG.copy()
+    configured = getattr(settings, "ILLEGAL_ANCHORED_DETECTION", {})
+    if isinstance(configured, dict):
+        for key in config:
+            try:
+                value = float(configured.get(key))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and value >= 0:
+                config[key] = value
+
+    config["min_observations"] = max(
+        2,
+        int(config["min_observations"]),
+    )
+    config["min_duration_seconds"] = int(
+        config["min_duration_seconds"]
+    )
+    config["history_window_seconds"] = max(
+        config["min_duration_seconds"],
+        int(config["history_window_seconds"]),
+    )
+    return config
 
 
 def _parse_timestamp(value):
@@ -97,41 +131,68 @@ def _normalise_ship(ship_info):
     }
 
 
-def _is_anchor_candidate(ship):
+def _is_anchor_candidate(ship, config):
     # Docked vessels are normal port operations, not anchor candidates.
     if ship["at_dock"]:
         return False
 
-    # AIS status 1 explicitly means "at anchor".  Low SOG is only a fallback
-    # when navigation status is absent or 15 (undefined); applying it to every
-    # status incorrectly classifies moored (5), underway (0), fishing (7), etc.
-    if ship["nav_status"] == 1:
-        return True
+    # Navigation status 0 (under way using engine) is frequently stale while
+    # a vessel is stationary.  Treat it as a low-speed fallback candidate;
+    # duration, drift and legal-zone checks below still have to pass.
     return (
-        ship["nav_status"] in {None, 15}
-        and ship["speed"] <= MAX_ANCHOR_SPEED_KNOTS
+        ship["nav_status"] in {0, 1, None, 15}
+        and ship["speed"] <= config["max_speed_knots"]
     )
 
 
-def _append_history(history, ship, classification):
+def _is_normal_port_operation(ship, classification):
+    if classification["state"] == "prohibited":
+        return False
+    if ship["matched_port_name"]:
+        return True
+    try:
+        return bool(
+            zones_containing_point(
+                ship["lon"],
+                ship["lat"],
+                zone_types=PORT_ZONE_TYPES,
+            )
+        )
+    except MaritimeZoneDataError:
+        return False
+
+
+def _append_history(history, ship, classification, config):
     mmsi = ship["mmsi"]
     timestamp = ship["timestamp"]
     points = history.get(mmsi, [])
 
-    is_normal_port_operation = (
-        bool(ship["matched_port_name"])
-        and classification["state"] != "prohibited"
+    normal_port_operation = _is_normal_port_operation(
+        ship,
+        classification,
     )
     if (
-        not _is_anchor_candidate(ship)
-        or is_normal_port_operation
+        not _is_anchor_candidate(ship, config)
+        or normal_port_operation
         or classification["state"] in {"authorized", "outside_coverage"}
     ):
         history.pop(mmsi, None)
         return []
 
+    episode_started_at = timestamp
+    if points:
+        episode_started_at = (
+            _parse_timestamp(points[-1].get("episode_started_at"))
+            or _parse_timestamp(points[0].get("timestamp"))
+            or timestamp
+        )
+
     point = {
         "timestamp": timestamp.isoformat(),
+        # Keep the episode identity outside the rolling analysis window.
+        # Otherwise points[0] advances whenever the oldest observation is
+        # evicted and one continuous anchoring episode receives a new ID.
+        "episode_started_at": episode_started_at.isoformat(),
         "lon": ship["lon"],
         "lat": ship["lat"],
         "zone_name": classification["zone_name"],
@@ -149,7 +210,9 @@ def _append_history(history, ship, classification):
     else:
         points = [point]
 
-    cutoff = timestamp - timedelta(seconds=HISTORY_WINDOW_SECONDS)
+    cutoff = timestamp - timedelta(
+        seconds=config["history_window_seconds"]
+    )
     points = [
         item
         for item in points
@@ -165,9 +228,10 @@ def _append_history(history, ship, classification):
             ship["lon"],
             ship["lat"],
         )
-        > MAX_ANCHOR_DRIFT_METRES
+        > config["max_drift_metres"]
         for item in points[:-1]
     ):
+        point["episode_started_at"] = point["timestamp"]
         points = [point]
 
     # Crossing into a different legal classification starts a new episode.
@@ -176,16 +240,20 @@ def _append_history(history, ship, classification):
         or item.get("zone_name") != point["zone_name"]
         for item in points[:-1]
     ):
+        point["episode_started_at"] = point["timestamp"]
         points = [point]
 
     history[mmsi] = points
     return points
 
 
-def _episode_duration(points):
-    if len(points) < MIN_OBSERVATIONS:
+def _episode_duration(points, config):
+    if len(points) < config["min_observations"]:
         return 0
-    start = _parse_timestamp(points[0].get("timestamp"))
+    start = (
+        _parse_timestamp(points[-1].get("episode_started_at"))
+        or _parse_timestamp(points[0].get("timestamp"))
+    )
     end = _parse_timestamp(points[-1].get("timestamp"))
     if start is None or end is None:
         return 0
@@ -208,6 +276,7 @@ def _empty_response(skipped_count=0):
 
 @require_GET
 def detect_illegal_anchored(request):
+    config = _config()
     ship_list = getattr(request, "ais_ship_list", None)
     if ship_list is None:
         ship_list = cache.get("latest_ais_data_raw", [])
@@ -234,7 +303,9 @@ def detect_illegal_anchored(request):
         history = {}
 
     latest_timestamp = max(ship["timestamp"] for ship in ships)
-    stale_cutoff = latest_timestamp - timedelta(seconds=HISTORY_WINDOW_SECONDS)
+    stale_cutoff = latest_timestamp - timedelta(
+        seconds=config["history_window_seconds"]
+    )
     for mmsi, points in list(history.items()):
         if not points:
             history.pop(mmsi, None)
@@ -246,10 +317,16 @@ def detect_illegal_anchored(request):
     alerts = []
     for ship in ships:
         classification = classify_location(ship["lon"], ship["lat"])
-        points = _append_history(history, ship, classification)
-        duration = _episode_duration(points)
-        if duration < MIN_ANCHOR_DURATION_SECONDS:
+        points = _append_history(history, ship, classification, config)
+        duration = _episode_duration(points, config)
+        if duration < config["min_duration_seconds"]:
             continue
+
+        episode_started_at = (
+            _parse_timestamp(points[-1].get("episode_started_at"))
+            or _parse_timestamp(points[0].get("timestamp"))
+        )
+        episode_started_at_text = episode_started_at.isoformat()
 
         reason = classification["reason"]
         zone_name = classification["zone_name"] or "未知水域"
@@ -263,11 +340,20 @@ def detect_illegal_anchored(request):
             {
                 "mmsi": ship["mmsi"],
                 "name": ship["name"],
+                "timestamp": ship["timestamp"].isoformat(),
                 "location": [ship["lon"], ship["lat"]],
                 "speed": ship["speed"],
                 "zone": zone_name,
                 "reason": reason,
                 "duration_seconds": duration,
+                "first_detected_at": episode_started_at_text,
+                "trajectory_started_at": episode_started_at_text,
+                "episode_started_at": episode_started_at_text,
+                "event_id": (
+                    f"illegal-anchored:{ship['mmsi']}:"
+                    f"{classification['state']}:{zone_name}:"
+                    f"{episode_started_at_text}"
+                ),
                 "risk": (
                     "高风险"
                     if classification["state"] == "prohibited"
@@ -293,10 +379,13 @@ def detect_illegal_anchored(request):
             "results": alerts,
             "skipped_count": skipped_count,
             "rule": {
-                "max_speed_knots": MAX_ANCHOR_SPEED_KNOTS,
-                "min_duration_seconds": MIN_ANCHOR_DURATION_SECONDS,
-                "min_observations": MIN_OBSERVATIONS,
-                "max_drift_metres": MAX_ANCHOR_DRIFT_METRES,
+                "max_speed_knots": config["max_speed_knots"],
+                "min_duration_seconds": config["min_duration_seconds"],
+                "min_observations": config["min_observations"],
+                "max_drift_metres": config["max_drift_metres"],
+                "history_window_seconds": config[
+                    "history_window_seconds"
+                ],
             },
             "sources": SOURCE_METADATA,
             "message": "检测成功",

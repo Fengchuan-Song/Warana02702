@@ -63,6 +63,8 @@
         }
         
         .toolbar-icon {
+            display: block;
+            flex: 0 0 auto;
             width: 90%;
             padding: 7px 2px;
             margin-bottom: 4px;
@@ -73,6 +75,7 @@
             transition: background-color 0.2s, color 0.2s;
             color: var(--color-text-light);
             border: 1px solid transparent;
+            text-decoration: none;
         }
         
         .toolbar-icon:hover {
@@ -679,9 +682,17 @@
             text-decoration: underline; /* 下划线 */
             cursor: pointer;
             transition: color 0.2s;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            font: inherit;
         }
         .clickable-mmsi:hover {
             color: var(--color-primary); /* 悬停时变蓝 */
+        }
+
+        .radar-target-id {
+            color: #63B3ED;
         }
 
         .warning-target-name {
@@ -747,6 +758,27 @@
         .ship-info-window p {
             margin: 3px 0;
             color: var(--color-text-light);
+        }
+        .violation-trajectory-point-hit {
+            width: 14px;
+            height: 14px;
+            background: transparent;
+            cursor: pointer;
+        }
+        #violation-trajectory-control {
+            top: 10px;
+            right: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+        }
+        #violation-trajectory-control[hidden] {
+            display: none;
+        }
+        #violation-trajectory-control .fence-button {
+            border-color: var(--color-alert-red);
+            background: rgba(229, 62, 62, 0.35);
         }
         .sensor-options {
             display: flex;
@@ -919,6 +951,148 @@
             margin-right: 5px;
             border-radius: 50%;
         }
+        .violation-record-filters {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .violation-record-filters input[type="date"] {
+            color-scheme: dark;
+        }
+        .violation-record-summary {
+            min-height: 22px;
+            margin: 8px 0;
+            font-size: 0.85rem;
+            color: var(--color-success-green);
+        }
+        .violation-record-card {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid rgba(229, 62, 62, 0.45);
+            border-left: 4px solid var(--color-alert-red);
+            border-radius: 6px;
+            background: rgba(12, 16, 27, 0.72);
+        }
+        .violation-record-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 7px;
+            color: white;
+            font-weight: 600;
+        }
+        .violation-record-risk {
+            flex: 0 0 auto;
+            color: var(--color-warning-yellow);
+            font-size: 0.8rem;
+        }
+        .violation-record-meta,
+        .violation-record-detail {
+            margin-top: 5px;
+            font-size: 0.8rem;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+        .violation-record-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .violation-record-actions .fence-button {
+            padding: 4px 7px;
+            font-size: 0.76rem;
+        }
+        .violation-record-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .violation-statistics-card {
+            margin: 12px 0;
+            padding: 10px;
+            border: 1px solid rgba(0, 123, 255, 0.45);
+            border-radius: 6px;
+            background: rgba(12, 16, 27, 0.72);
+        }
+        .violation-statistics-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .violation-statistics-header h3 {
+            color: white;
+            font-size: 0.95rem;
+        }
+        .violation-chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .violation-chart-button {
+            min-width: 28px;
+            padding: 3px 6px;
+            border: 1px solid rgba(0, 123, 255, 0.65);
+            border-radius: 4px;
+            background: rgba(0, 123, 255, 0.2);
+            color: white;
+            cursor: pointer;
+        }
+        #violation-chart-zoom-label {
+            min-width: 40px;
+            text-align: center;
+            font-size: 0.72rem;
+        }
+        .violation-chart-viewport {
+            position: relative;
+            width: 100%;
+            height: 230px;
+            overflow: hidden;
+            border-radius: 4px;
+            background: rgba(6, 10, 20, 0.5);
+            cursor: zoom-in;
+        }
+        #violation-pie-chart {
+            display: block;
+            transform-origin: center center;
+            transition: transform 0.15s ease-out;
+        }
+        .violation-chart-help {
+            margin: 6px 0;
+            text-align: center;
+            font-size: 0.72rem;
+        }
+        .violation-chart-legend {
+            display: grid;
+            gap: 5px;
+            margin-top: 8px;
+        }
+        .violation-chart-legend-item {
+            display: grid;
+            grid-template-columns: 10px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.76rem;
+        }
+        .violation-chart-legend-color {
+            width: 9px;
+            height: 9px;
+            border-radius: 2px;
+        }
+        .violation-chart-legend-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .violation-chart-legend-value {
+            color: white;
+            white-space: nowrap;
+        }
 
     </style>
 </head>
@@ -939,8 +1113,20 @@
             <div id="btn-function" class="toolbar-icon" onclick="togglePanel('function-panel-container')">
                 🛠️<span class="icon-label">功能选项</span>
             </div>
+            <a id="btn-model" class="toolbar-icon" href="{% url 'model_parameter_page' %}">
+                🎚️<span class="icon-label">模型参数</span>
+            </a>
+            <div id="btn-records" class="toolbar-icon" onclick="toggleViolationRecordsPanel()">
+                📋<span class="icon-label">识别记录</span>
+            </div>
             <div id="btn-fence" class="toolbar-icon" onclick="togglePanel('fence-panel-container')">
                 🌐<span class="icon-label">电子围栏</span>
+            </div>
+            <div id="btn-parking" class="toolbar-icon" onclick="togglePanel('parking-panel-container')">
+                🅿️<span class="icon-label">停泊区域</span>
+            </div>
+            <div id="btn-staying" class="toolbar-icon" onclick="togglePanel('staying-panel-container')">
+                🚫<span class="icon-label">驻留区域</span>
             </div>
             <div id="btn-blacklist" class="toolbar-icon" onclick="togglePanel('blacklist-panel-container')">
                 ⛔<span class="icon-label">黑名单</span>
@@ -999,12 +1185,15 @@
                 <h3>信息/图层</h3>
                 <div class="info-buttons-grid">
                     <button id="info-all-ships" class="info-button active" type="button" aria-pressed="true">全部船舶</button>
+                    <button id="info-maritime-ports" class="info-button" type="button" aria-pressed="false">港口/码头</button>
+                    <button id="info-maritime-anchorages" class="info-button" type="button" aria-pressed="false">锚地</button>
                     <button id="info-meteorology" class="info-button" type="button" aria-pressed="false">气象</button>
                     <button id="info-current-typhoon" class="info-button" type="button" aria-pressed="false">当前台风</button>
                     <button id="info-typhoon-warning-lines" class="info-button" type="button" aria-pressed="false">台风预警线</button>
                 </div>
                 <div id="meteorology-layer-status" class="layer-status-message" role="status" aria-live="polite"></div>
                 <div id="typhoon-layer-status" class="layer-status-message" role="status" aria-live="polite"></div>
+                <div id="maritime-zone-layer-status" class="layer-status-message" role="status" aria-live="polite"></div>
             </div>
 
         </div>
@@ -1401,6 +1590,54 @@
 
         </div>
 
+        <div id="records-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>违法事件识别记录</h2>
+            </div>
+            <div class="violation-record-filters">
+                <select id="violation-record-feature" class="fence-form-control">
+                    <option value="">全部违法类型</option>
+                </select>
+                <input
+                    id="violation-record-target"
+                    class="fence-form-control"
+                    type="search"
+                    placeholder="搜索 MMSI、Radar ID、船名或详情"
+                >
+                <label class="fence-form-label" for="violation-record-start">识别日期从</label>
+                <input id="violation-record-start" class="fence-form-control" type="date">
+                <label class="fence-form-label" for="violation-record-end">识别日期至</label>
+                <input id="violation-record-end" class="fence-form-control" type="date">
+                <div class="fence-actions">
+                    <button class="fence-button" type="button" onclick="loadViolationRecords(1)">查询</button>
+                    <button class="fence-button" type="button" onclick="resetViolationRecordFilters()">重置</button>
+                </div>
+            </div>
+            <section class="violation-statistics-card" aria-labelledby="violation-statistics-title">
+                <div class="violation-statistics-header">
+                    <h3 id="violation-statistics-title">违法事件数量与占比</h3>
+                    <div class="violation-chart-controls">
+                        <button class="violation-chart-button" type="button" title="缩小" onclick="adjustViolationChartZoom(-0.2)">−</button>
+                        <span id="violation-chart-zoom-label">100%</span>
+                        <button class="violation-chart-button" type="button" title="放大" onclick="adjustViolationChartZoom(0.2)">＋</button>
+                        <button class="violation-chart-button" type="button" title="恢复原始大小" onclick="resetViolationChartZoom()">↺</button>
+                    </div>
+                </div>
+                <div id="violation-chart-viewport" class="violation-chart-viewport" title="使用鼠标滚轮缩放饼图">
+                    <canvas id="violation-pie-chart" role="img" aria-label="各违法事件数量及占比饼图"></canvas>
+                </div>
+                <div class="violation-chart-help">鼠标滚轮或右上角按钮可缩放饼图</div>
+                <div id="violation-chart-legend" class="violation-chart-legend"></div>
+            </section>
+            <div id="violation-record-summary" class="violation-record-summary"></div>
+            <div id="violation-record-list"></div>
+            <div class="violation-record-pagination">
+                <button id="violation-record-previous" class="fence-button" type="button">上一页</button>
+                <span id="violation-record-page">第 1 / 1 页</span>
+                <button id="violation-record-next" class="fence-button" type="button">下一页</button>
+            </div>
+        </div>
+
         <div id="fence-panel-container" class="side-panel-container">
             <div class="sidebar-header">
                 <h2>电子围栏管理</h2>
@@ -1441,6 +1678,101 @@
             <div class="option-section">
                 <h3>已有围栏</h3>
                 <div id="fence-list">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="parking-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>异常停泊监控区配置</h2>
+            </div>
+            <p class="management-help">
+                启用的矩形区域会显示在地图上，并作为异常停泊检测范围。
+            </p>
+            <input id="parking-area-id" type="hidden">
+
+            <label class="fence-form-label" for="parking-area-name">区域名称</label>
+            <input id="parking-area-name" class="fence-form-control" type="text" maxlength="100" placeholder="例如：港外异常停泊监控区">
+
+            <label class="fence-form-label" for="parking-area-min-lon">最小经度（西）</label>
+            <input id="parking-area-min-lon" class="fence-form-control" type="number" min="-180" max="180" step="0.000001">
+
+            <label class="fence-form-label" for="parking-area-min-lat">最小纬度（南）</label>
+            <input id="parking-area-min-lat" class="fence-form-control" type="number" min="-90" max="90" step="0.000001">
+
+            <label class="fence-form-label" for="parking-area-max-lon">最大经度（东）</label>
+            <input id="parking-area-max-lon" class="fence-form-control" type="number" min="-180" max="180" step="0.000001">
+
+            <label class="fence-form-label" for="parking-area-max-lat">最大纬度（北）</label>
+            <input id="parking-area-max-lat" class="fence-form-control" type="number" min="-90" max="90" step="0.000001">
+
+            <button
+                id="parking-area-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >区域状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="parking-area-save" class="fence-button" type="button">保存区域</button>
+                <button id="parking-area-new" class="fence-button" type="button">新建/清空</button>
+                <button id="parking-area-draw" class="fence-button" type="button">地图框选</button>
+            </div>
+            <div id="parking-area-message" class="management-status"></div>
+            <div id="parking-rule-summary" class="management-help"></div>
+
+            <div class="option-section">
+                <h3>已有异常停泊监控区</h3>
+                <div id="parking-area-list">正在加载……</div>
+            </div>
+        </div>
+
+        <div id="staying-panel-container" class="side-panel-container">
+            <div class="sidebar-header">
+                <h2>非法驻留监控区配置</h2>
+            </div>
+            <p class="management-help">
+                启用的矩形区域会以红色显示在地图上，并作为非法驻留检测范围。
+            </p>
+            <input id="staying-area-id" type="hidden">
+
+            <label class="fence-form-label" for="staying-area-name">区域名称</label>
+            <input id="staying-area-name" class="fence-form-control" type="text" maxlength="100" placeholder="例如：航道非法驻留监控区">
+
+            <label class="fence-form-label" for="staying-area-reason">禁停原因</label>
+            <textarea id="staying-area-reason" class="fence-form-control" maxlength="1000" placeholder="例如：该区域禁止未经许可的长时间驻留"></textarea>
+
+            <label class="fence-form-label" for="staying-area-min-lon">最小经度（西）</label>
+            <input id="staying-area-min-lon" class="fence-form-control" type="number" min="-180" max="180" step="0.000001">
+
+            <label class="fence-form-label" for="staying-area-min-lat">最小纬度（南）</label>
+            <input id="staying-area-min-lat" class="fence-form-control" type="number" min="-90" max="90" step="0.000001">
+
+            <label class="fence-form-label" for="staying-area-max-lon">最大经度（东）</label>
+            <input id="staying-area-max-lon" class="fence-form-control" type="number" min="-180" max="180" step="0.000001">
+
+            <label class="fence-form-label" for="staying-area-max-lat">最大纬度（北）</label>
+            <input id="staying-area-max-lat" class="fence-form-control" type="number" min="-90" max="90" step="0.000001">
+
+            <button
+                id="staying-area-active"
+                class="fence-button fence-status-button"
+                type="button"
+                data-active="true"
+                aria-pressed="true"
+            >区域状态：已启用（点击停用）</button>
+
+            <div class="fence-actions">
+                <button id="staying-area-save" class="fence-button" type="button">保存区域</button>
+                <button id="staying-area-new" class="fence-button" type="button">新建/清空</button>
+                <button id="staying-area-draw" class="fence-button" type="button">地图框选</button>
+            </div>
+            <div id="staying-area-message" class="management-status"></div>
+            <div id="staying-rule-summary" class="management-help"></div>
+
+            <div class="option-section">
+                <h3>已有非法驻留监控区</h3>
+                <div id="staying-area-list">正在加载……</div>
             </div>
         </div>
 
@@ -1596,7 +1928,7 @@
                 <h2>海上走私研判配置</h2>
             </div>
             <p class="management-help">
-                维护香港起航区、合法口岸、广东非设关靠泊区及已批准航次。配置保存后直接参与实时研判。
+                维护香港地区空间范围及已批准航次。广东港口由系统港口数据集统一提供，配置保存后直接参与实时研判。
             </p>
             <div class="management-tabs" role="tablist" aria-label="走私研判配置">
                 <button id="smuggling-zone-tab" class="management-tab active" type="button" data-tab="zone" aria-selected="true">区域管理</button>
@@ -1611,9 +1943,7 @@
 
                 <label class="fence-form-label" for="smuggling-zone-type">区域类型（必填）</label>
                 <select id="smuggling-zone-type" class="fence-form-control">
-                    <option value="hong_kong_origin">香港起航区</option>
-                    <option value="customs_port">合法口岸/海关监管区</option>
-                    <option value="non_customs_landing">广东非设关靠泊区</option>
+                    <option value="hong_kong_origin">香港地区空间范围</option>
                 </select>
 
                 <label class="fence-form-label" for="smuggling-zone-buffer">外围预警距离（米）</label>
@@ -1664,9 +1994,9 @@
                     <option value="">不限香港起航区</option>
                 </select>
 
-                <label class="fence-form-label" for="smuggling-permit-destination">许可目的区域</label>
+                <label class="fence-form-label" for="smuggling-permit-destination">许可目的广东港口</label>
                 <select id="smuggling-permit-destination" class="fence-form-control">
-                    <option value="">不限非设关靠泊区</option>
+                    <option value="">不限广东港口</option>
                 </select>
 
                 <label class="fence-form-label" for="smuggling-permit-valid-from">有效期开始（必填）</label>
@@ -1703,21 +2033,16 @@
 
         <div id="map-container">
             <div id="amap-instance" style="width: 100%; height: 100%;"></div>
-
-            <div id="overview-cards" class="overlay-card" style="position: absolute; top: 20px; left: 20px;">
-                <div class="data-card" style="border-right: 1px solid rgba(0, 123, 255, 0.5);">
-                    <div class="card-label">船舶总数</div>
-                    <div id="total-ships" class="card-value">128</div>
-                </div>
-                <div class="data-card" style="color: var(--color-alert-red);">
-                    <div class="card-label">异常/告警</div>
-                    <div id="alert-ships" class="card-value">5</div>
-                </div>
+            <div
+                id="violation-trajectory-control"
+                class="overlay-card"
+                role="status"
+                aria-live="polite"
+                hidden
+            >
+                <span id="violation-trajectory-status">AIS轨迹已显示</span>
+                <button class="fence-button" type="button" onclick="clearViolationTrajectory()">关闭轨迹</button>
             </div>
-
-            <div id="playback-controls" class="overlay-card" style="position: absolute; display: none; bottom: 20px; left: 50%; transform: translateX(-50%);">
-                <button class="tool-button" id="btn-play">▶️ 播放</button>
-                </div>
         </div>
     </div>
     
@@ -1789,12 +2114,19 @@
         let detectionResults = {};
         let latestDetectionPayloads = {};
         let electronicFences = new Map();
+        let parkingMonitorAreas = new Map();
+        let illegalStayingAreas = new Map();
         let blacklistEntries = new Map();
         let berthingPermits = new Map();
         let transferOperationPlans = new Map();
         let smugglingZones = new Map();
+        let smugglingPorts = new Map();
         let smugglingVoyagePermits = new Map();
         let fencePolygons = new Map();
+        let parkingAreaOverlays = new Map();
+        let parkingAreaMouseTool = null;
+        let illegalStayingAreaOverlays = new Map();
+        let illegalStayingAreaMouseTool = null;
         let smugglingZonePolygons = new Map();
         let smugglingZoneMouseTool = null;
         let smugglingZoneDraftPolygon = null;
@@ -1809,6 +2141,10 @@
         let marineWeatherLoadPromise = null;
         let marineWeatherRefreshTimer = null;
         let marineWeatherInfoWindow = null;
+        let maritimeZoneOverlays = { ports: [], anchorages: [] };
+        let maritimeZoneVisibility = { ports: false, anchorages: false };
+        let maritimeZoneLoadPromise = null;
+        let maritimeZoneInfoWindow = null;
         let cameraConfigurations = new Map();
         let cameraMarkers = new Map();
         let selectedCameraKey = null;
@@ -1818,6 +2154,21 @@
         let cameraStreamFallbackTimer = null;
         let cameraStreamObjectUrl = null;
         let cameraStreamHasFrame = false;
+        let violationRecordCurrentPage = 1;
+        let violationRecordTotalPages = 1;
+        let violationTrajectoryOverlays = [];
+        let violationTrajectoryInfoWindow = null;
+        let activeViolationTrajectoryRecordId = null;
+        let activeViolationTrajectoryMmsi = null;
+        let activeViolationTrajectoryPointCount = 0;
+        let violationTrajectoryLoadSequence = 0;
+        let violationChartScale = 1;
+        const VIOLATION_CHART_COLORS = [
+            '#E53E3E', '#007BFF', '#48BB78', '#FFC107', '#9F7AEA',
+            '#ED8936', '#00B5D8', '#F687B3', '#38B2AC', '#A0AEC0',
+            '#FC8181', '#63B3ED', '#68D391', '#F6E05E', '#B794F4',
+            '#F6AD55', '#4FD1C5', '#76E4F7', '#CBD5E0', '#C05621',
+        ];
 
         const CAMERA_COLLECTION_URL = "{% url 'camera_collection' %}";
         const CAMERA_DETAIL_URL_TEMPLATE =
@@ -1830,8 +2181,9 @@
             visible: true,
         });
 
-        // 【新增】WebSocket 实例
+        // 实时数据 WebSocket 实例
         let ws = null;
+        let violationWs = null;
 
         // 船舶目标显示变量
         let shipMarkersMap = new Map();
@@ -1851,6 +2203,9 @@
         const EXPIRATION_TIME = 60000;      // 目标消失阈值：60s
         const AIS_RADAR_FUSION_POLL_INTERVAL = 3000;
         const AIS_RADAR_FUSED_TARGETS_URL = "{% url 'ais_radar:fused_targets' %}";
+        const VIOLATION_RECORD_LIST_URL = "{% url 'violation_record_list' %}";
+        const SHIP_TRAJECTORY_URL = "{% url 'ship_trajectory' %}";
+        const MARITIME_ZONE_COLLECTION_URL = "{% url 'maritime_zone_collection' %}";
 
         // Marker Icon SVG URL (保持不变)
         const ICON_TRIANGLE_URL = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 100 100"><polygon points="50,10 90,90 10,90" style="fill:%23FFC107;stroke:black;stroke-width:5"/></svg>';
@@ -1926,11 +2281,6 @@
 
             shipData = Array.from(combinedShips.values());
             updateMarkersAndList();
-
-            document.getElementById('total-ships').textContent = shipData.length;
-            document.getElementById('alert-ships').textContent = shipData.filter(
-                ship => ship.status === 'sailing' && ship.speed > 25
-            ).length;
         }
 
         function applyAisSourceSnapshot(source, rawData) {
@@ -1965,11 +2315,6 @@
                     applyAisSourceSnapshot('ais-worker', message.data);
                 } else if (message.type === 'ais_radar_replay_update') {
                     applyAisSourceSnapshot('ais-radar-replay', message.data);
-                } else if (message.type === 'detection_update') {
-                    const backendResults = message.data || {};
-                    Object.entries(backendResults).forEach(([featureId, payload]) => {
-                        applyDetectionPayload(featureId, payload);
-                    });
                 } else if (message.type === 'radar_update') {
                     radarData = Array.isArray(message.data) ? message.data : [];
                 } else if (message.type === 'ais_radar_fusion_update') {
@@ -2048,6 +2393,49 @@
                     event.preventDefault();
                     openAisRadarFusionModal();
                 }
+            };
+        }
+
+        function initViolationWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:'
+                ? 'wss:'
+                : 'ws:';
+            const wsUrl =
+                `${wsProtocol}//${window.location.host}/ws/violations/`;
+            const socket = new WebSocket(wsUrl);
+            violationWs = socket;
+
+            socket.onopen = function() {
+                if (violationWs !== socket) return;
+                console.log('Violation WebSocket connection opened.');
+            };
+
+            socket.onmessage = function(event) {
+                if (violationWs !== socket) return;
+                const message = JSON.parse(event.data);
+                if (message.type !== 'detection_update') return;
+
+                const backendResults = message.data || {};
+                Object.entries(backendResults).forEach(
+                    ([featureId, payload]) => {
+                        applyDetectionPayload(featureId, payload);
+                    }
+                );
+            };
+
+            socket.onclose = function() {
+                if (violationWs !== socket) return;
+                violationWs = null;
+                console.log(
+                    'Violation WebSocket closed. Retrying in 5s...'
+                );
+                window.setTimeout(initViolationWebSocket, 5000);
+            };
+
+            socket.onerror = function(error) {
+                if (violationWs !== socket) return;
+                console.error('Violation WebSocket error:', error);
+                socket.close();
             };
         }
 
@@ -2319,15 +2707,17 @@
 
             shipInfoWindow.setContent(content);
             shipInfoWindow.open(map, [ship.lon, ship.lat]);
-
-            AMap.event.addListener(shipInfoWindow, 'open', () => {
+            // AMap 2.0 does not expose the legacy AMap.event namespace.
+            // Bind directly to the rendered DOM so opening the popup cannot
+            // turn a successful trajectory request into a loading failure.
+            window.setTimeout(() => {
                 const infoWindowElement = document.querySelector('.ship-info-window');
                 if (infoWindowElement) {
                     infoWindowElement.addEventListener('click', (e) => {
-                        e.stopPropagation(); 
+                        e.stopPropagation();
                     });
                 }
-            }); 
+            }, 0);
         }
 
         function getFeatureTitle(featureId) {
@@ -2381,11 +2771,35 @@
             )];
         }
 
-        function buildTargetMmsiHtml(target) {
-            const mmsis = getTargetMmsis(target);
+        function getTargetTrajectoryEndAt(featureId, target) {
+            const payload = latestDetectionPayloads[featureId] || {};
+            const candidates = [
+                target.timestamp,
+                target.last_seen,
+                target.event_time,
+                target.observed_at,
+                target.last_detected_at,
+                payload.timestamp,
+                target.first_detected_at,
+            ];
+            const endAt = candidates
+                .map(value => String(value || '').trim())
+                .find(value => value && !Number.isNaN(Date.parse(value)));
+            return endAt || new Date().toISOString();
+        }
+
+        function buildTargetMmsiHtml(target, featureId) {
+            const mmsis = getTargetMmsis(target).filter(mmsi => /^\d{9}$/.test(mmsi));
+            if (!mmsis.length) {
+                const radarId = String(target.radar_id || '').trim();
+                return radarId
+                    ? `<span class="radar-target-id">Radar ID: ${escapeHtml(radarId)}</span>`
+                    : '<span>无可用目标标识</span>';
+            }
+            const endAt = getTargetTrajectoryEndAt(featureId, target);
             return mmsis.map((mmsi, index) => {
                 const label = mmsis.length > 1 ? `MMSI ${index + 1}` : 'MMSI';
-                return `<span class="clickable-mmsi" onclick="locateShipByMMSI('${mmsi}', true)">${label}: ${mmsi}</span>`;
+                return `<button type="button" class="clickable-mmsi" data-mmsi="${mmsi}" data-end-at="${escapeHtml(endAt)}" title="定位船舶并显示历史轨迹（截止该预警时刻）">${label}: ${mmsi}</button>`;
             }).join('<br>');
         }
 
@@ -2557,7 +2971,7 @@
 
             let detailHtml = '<ul class="modal-details-list">';
             targets.forEach((target, index) => {                
-                const mmsiHtml = buildTargetMmsiHtml(target);
+                const mmsiHtml = buildTargetMmsiHtml(target, featureId);
                 const targetNameHtml = buildTargetNameHtml(target);
                 const detailsHtml = escapeHtml(
                     target.details || target.status || ''
@@ -2572,7 +2986,15 @@
             detailHtml += '</ul>';
             
             modalDetails.innerHTML = detailHtml;
-            
+            modalDetails.querySelectorAll('.clickable-mmsi').forEach(button => {
+                button.addEventListener('click', () =>
+                    locateShipWithHistory(
+                        button.dataset.mmsi,
+                        button.dataset.endAt
+                    )
+                );
+            });
+
             modal.style.display = 'flex';
         }
 
@@ -3324,7 +3746,6 @@
                 marker.on('click', () => {
                     const currentShip = marker.getExtData();
                     selectShip(currentShip.mmsi);
-                    document.getElementById('playback-controls').style.display = 'flex';
                     openShipPopup(currentShip);
                 });
                 shipMarkersMap.set(shipMmsi, marker);
@@ -3335,8 +3756,16 @@
         }
 
         // ----------------- 新增：定位船舶 JS 逻辑 -----------------
-        function locateShipByMMSI(mmsi, fromViolationDetection = false) {
+        function locateShipByMMSI(
+            mmsi,
+            fromViolationDetection = false,
+            suppressMissingAlert = false
+        ) {
             const normalizedMmsi = normalizeMmsi(mmsi);
+            if (!normalizedMmsi) {
+                if (!suppressMissingAlert) alert('MMSI格式不正确。');
+                return false;
+            }
             const detectionTarget = fromViolationDetection
                 ? findDetectionTargetByMMSI(normalizedMmsi)
                 : null;
@@ -3354,7 +3783,9 @@
 
             if (targetShip) {
                 closeDetailModal(); 
-                togglePanel('list-panel-container'); 
+                if (!document.getElementById('list-panel-container').classList.contains('active')) {
+                    togglePanel('list-panel-container');
+                }
 
                 // “全部船舶”关闭时，临时显示违法事件涉及的全部船舶。
                 if (!areAllShipsVisible && fromViolationDetection) {
@@ -3364,7 +3795,6 @@
                 relatedShips.forEach(ensureLocatedShipMarker);
                 syncShipMarkerVisibility();
                 selectShip(targetShip.mmsi, fromViolationDetection ? 'violation' : 'normal');
-                document.getElementById('playback-controls').style.display = 'flex';
                 
                 // 定位并打开信息窗口
                 centerShipWithOffsetCorrection(targetShip, 12, () => {
@@ -3375,8 +3805,12 @@
                     `定位到船舶: ${mmsi} (${targetShip.name})；` +
                     `同时显示 ${relatedShips.length} 艘关联船舶`
                 );
+                return true;
             } else {
-                alert(`MMSI: ${normalizedMmsi} 的检测结果缺少有效船位，暂时无法定位。`);
+                if (!suppressMissingAlert) {
+                    alert(`MMSI: ${normalizedMmsi} 的检测结果缺少有效船位，暂时无法定位。`);
+                }
+                return false;
             }
         }
         
@@ -3425,6 +3859,10 @@
 
                     if (button.id === 'info-all-ships') {
                         setAllShipsVisibility(isSelected);
+                    } else if (button.id === 'info-maritime-ports') {
+                        setMaritimeZoneVisibility('ports', isSelected);
+                    } else if (button.id === 'info-maritime-anchorages') {
+                        setMaritimeZoneVisibility('anchorages', isSelected);
                     } else if (button.id === 'info-meteorology') {
                         setMarineWeatherLayerVisibility(isSelected);
                     } else if (button.id === 'info-current-typhoon') {
@@ -3448,6 +3886,12 @@
             status.classList.toggle('error', isError);
         }
 
+        function setMaritimeZoneStatus(message, isError = false) {
+            const status = document.getElementById('maritime-zone-layer-status');
+            status.textContent = message;
+            status.classList.toggle('error', isError);
+        }
+
         function setOverlaysVisible(overlays, isVisible) {
             overlays.forEach(overlay => {
                 if (isVisible) {
@@ -3456,6 +3900,106 @@
                     overlay.hide();
                 }
             });
+        }
+
+        function maritimeZoneLayerKey(zoneType) {
+            return zoneType === 'ANC' ? 'anchorages' : 'ports';
+        }
+
+        function showMaritimeZoneInfo(feature, position) {
+            if (!maritimeZoneInfoWindow) {
+                maritimeZoneInfoWindow = new AMap.InfoWindow({
+                    isCustom: true,
+                    offset: new AMap.Pixel(0, -12),
+                });
+            }
+            const properties = feature.properties || {};
+            maritimeZoneInfoWindow.setContent(
+                `<div class="marine-weather-popup">` +
+                `<h4>${escapeHtml(properties.name || '海事区域')}</h4>` +
+                `<p>LOCODE：${escapeHtml(properties.locode || '--')}</p>` +
+                `<p>类型：${escapeHtml(properties.zone_type || '--')}</p>` +
+                `<p>区域：${escapeHtml(properties.region || '--')}</p>` +
+                `</div>`
+            );
+            maritimeZoneInfoWindow.open(map, position);
+        }
+
+        async function renderMaritimeZones(payload) {
+            const features = (payload.features || []).filter(feature =>
+                feature.geometry &&
+                feature.geometry.type === 'Polygon' &&
+                Array.isArray(feature.geometry.coordinates?.[0])
+            );
+            const lengths = features.map(feature => feature.geometry.coordinates[0].length);
+            const converted = await convertGpsCoordinates(
+                features.flatMap(feature => feature.geometry.coordinates[0])
+            );
+            const nextOverlays = { ports: [], anchorages: [] };
+            let offset = 0;
+
+            features.forEach((feature, index) => {
+                const path = converted.slice(offset, offset + lengths[index]);
+                offset += lengths[index];
+                const layerKey = maritimeZoneLayerKey(feature.properties?.zone_type);
+                const isAnchorage = layerKey === 'anchorages';
+                const polygon = new AMap.Polygon({
+                    map: map,
+                    path: path,
+                    strokeColor: isAnchorage ? '#00B5D8' : '#F6AD55',
+                    strokeWeight: 2,
+                    strokeOpacity: 0.9,
+                    fillColor: isAnchorage ? '#00B5D8' : '#F6AD55',
+                    fillOpacity: isAnchorage ? 0.20 : 0.13,
+                    zIndex: isAnchorage ? 63 : 62,
+                });
+                polygon.on('click', event => {
+                    showMaritimeZoneInfo(feature, event.lnglat || path[0]);
+                });
+                nextOverlays[layerKey].push(polygon);
+            });
+
+            Object.values(maritimeZoneOverlays).forEach(removeOverlays);
+            maritimeZoneOverlays = nextOverlays;
+            Object.entries(maritimeZoneVisibility).forEach(([layerKey, visible]) => {
+                setOverlaysVisible(maritimeZoneOverlays[layerKey], visible);
+            });
+            setMaritimeZoneStatus(
+                `已加载港口/码头 ${nextOverlays.ports.length} 个，` +
+                `锚地 ${nextOverlays.anchorages.length} 个`
+            );
+        }
+
+        function loadMaritimeZones() {
+            if (maritimeZoneLoadPromise) return maritimeZoneLoadPromise;
+            setMaritimeZoneStatus('正在加载粤港澳港口与锚地数据……');
+            maritimeZoneLoadPromise = fetch(MARITIME_ZONE_COLLECTION_URL, {
+                headers: { Accept: 'application/json' },
+            })
+                .then(response => response.json().then(payload => ({ response, payload })))
+                .then(async ({ response, payload }) => {
+                    if (!response.ok || !payload.success) {
+                        throw new Error(payload.message || `HTTP ${response.status}`);
+                    }
+                    await renderMaritimeZones(payload);
+                    return payload;
+                })
+                .catch(error => {
+                    setMaritimeZoneStatus(`海事区域加载失败：${error.message}`, true);
+                    throw error;
+                })
+                .finally(() => {
+                    maritimeZoneLoadPromise = null;
+                });
+            return maritimeZoneLoadPromise;
+        }
+
+        function setMaritimeZoneVisibility(layerKey, isVisible) {
+            maritimeZoneVisibility[layerKey] = isVisible;
+            setOverlaysVisible(maritimeZoneOverlays[layerKey], isVisible);
+            if (isVisible && !maritimeZoneOverlays[layerKey].length) {
+                loadMaritimeZones().catch(() => {});
+            }
         }
 
         function removeOverlays(overlays) {
@@ -3957,7 +4501,6 @@
                 selectedShipMmsi = null;
                 selectedShipHighlightType = 'normal';
                 closeShipPopup();
-                document.getElementById('playback-controls').style.display = 'none';
                 document.querySelectorAll('#ship-list .ship-item').forEach(item => {
                     item.classList.remove('active', 'violation-selected');
                 });
@@ -3987,6 +4530,7 @@
 
             // 【修改】初始化地图后，立即尝试建立 WebSocket 连接
             initWebSocket();
+            initViolationWebSocket();
 
             // 【重要】移除 loadInitialShips() 调用，数据由 WebSocket 的 onmessage 处理
             // loadInitialShips();
@@ -3996,6 +4540,18 @@
             document.getElementById('fence-new').onclick = resetFenceForm;
             document.getElementById('fence-active').onclick = function() {
                 setFenceActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('parking-area-save').onclick = saveParkingArea;
+            document.getElementById('parking-area-new').onclick = resetParkingAreaForm;
+            document.getElementById('parking-area-draw').onclick = startDrawingParkingArea;
+            document.getElementById('parking-area-active').onclick = function() {
+                setParkingAreaActiveState(this.dataset.active !== 'true');
+            };
+            document.getElementById('staying-area-save').onclick = saveIllegalStayingArea;
+            document.getElementById('staying-area-new').onclick = resetIllegalStayingAreaForm;
+            document.getElementById('staying-area-draw').onclick = startDrawingIllegalStayingArea;
+            document.getElementById('staying-area-active').onclick = function() {
+                setIllegalStayingAreaActiveState(this.dataset.active !== 'true');
             };
             document.getElementById('blacklist-save').onclick = saveBlacklistEntry;
             document.getElementById('blacklist-new').onclick = resetBlacklistForm;
@@ -4046,10 +4602,13 @@
             document.getElementById('smuggling-permit-search').oninput =
                 renderSmugglingPermits;
             loadFences();
+            loadParkingAreas();
+            loadIllegalStayingAreas();
             loadBlacklist();
             loadBerthingPermits();
             loadTransferPlans();
             loadSmugglingZones();
+            loadSmugglingPorts();
             loadSmugglingPermits();
         }
 
@@ -4104,7 +4663,6 @@
                     marker.on('click', () => {
                         const currentShip = marker.getExtData();
                         selectShip(currentShip.mmsi);
-                        document.getElementById('playback-controls').style.display = 'flex';
                         openShipPopup(currentShip);
                     });
 
@@ -4140,7 +4698,6 @@
                 
                 listItem.onclick = () => {
                     selectShip(ship.mmsi);
-                    document.getElementById('playback-controls').style.display = 'flex';
                     centerShipWithOffsetCorrection(ship, 12, () => {
                         openShipPopup(ship);
                     });
@@ -4170,7 +4727,6 @@
 
             //     // C. Marker 交互
             //     marker.on('click', () => {
-            //         document.getElementById('playback-controls').style.display = 'flex';
             //         openShipPopup(ship);
             //     });
                 
@@ -4179,7 +4735,6 @@
             //         document.querySelectorAll('.ship-item.active').forEach(item => item.classList.remove('active'));
             //         listItem.classList.add('active');
                     
-            //         document.getElementById('playback-controls').style.display = 'flex';
             //         centerShipWithOffsetCorrection(ship, 12, () => {
             //             openShipPopup(ship);
             //         });
@@ -4231,6 +4786,546 @@
             }, 5000); // 每5秒检查一次过期目标
         }
 
+        function formatViolationRecordTime(value) {
+            if (!value) return '未知';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime())
+                ? escapeHtml(value)
+                : date.toLocaleString('zh-CN', {hour12: false});
+        }
+
+        function populateViolationFeatureOptions(options) {
+            const select = document.getElementById('violation-record-feature');
+            const selectedValue = select.value;
+            select.innerHTML = '<option value="">全部违法类型</option>' +
+                options.map(option =>
+                    `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`
+                ).join('');
+            select.value = selectedValue;
+        }
+
+        function setViolationChartZoom(scale) {
+            violationChartScale = Math.min(
+                2.5,
+                Math.max(0.6, Math.round(scale * 10) / 10)
+            );
+            document.getElementById('violation-pie-chart').style.transform =
+                `scale(${violationChartScale})`;
+            document.getElementById('violation-chart-zoom-label').textContent =
+                `${Math.round(violationChartScale * 100)}%`;
+        }
+
+        function adjustViolationChartZoom(delta) {
+            setViolationChartZoom(violationChartScale + delta);
+        }
+
+        function resetViolationChartZoom() {
+            setViolationChartZoom(1);
+        }
+
+        function drawViolationPieChart(statistics) {
+            const viewport = document.getElementById('violation-chart-viewport');
+            const canvas = document.getElementById('violation-pie-chart');
+            const context = canvas.getContext('2d');
+            const width = Math.max(240, viewport.clientWidth || 280);
+            const height = 230;
+            const pixelRatio = window.devicePixelRatio || 1;
+            canvas.width = Math.round(width * pixelRatio);
+            canvas.height = Math.round(height * pixelRatio);
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            context.clearRect(0, 0, width, height);
+
+            const items = statistics.items || [];
+            const total = Number(statistics.total || 0);
+            if (!items.length || total <= 0) {
+                context.fillStyle = '#A0AEC0';
+                context.font = '14px Segoe UI';
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText('当前筛选条件下暂无统计数据', width / 2, height / 2);
+                return;
+            }
+
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(width, height) * 0.38;
+            let startAngle = -Math.PI / 2;
+            items.forEach((item, index) => {
+                const ratio = item.count / total;
+                const endAngle = startAngle + ratio * Math.PI * 2;
+                context.beginPath();
+                context.moveTo(centerX, centerY);
+                context.arc(centerX, centerY, radius, startAngle, endAngle);
+                context.closePath();
+                context.fillStyle = VIOLATION_CHART_COLORS[
+                    index % VIOLATION_CHART_COLORS.length
+                ];
+                context.fill();
+                context.strokeStyle = '#1A2035';
+                context.lineWidth = 2;
+                context.stroke();
+
+                if (ratio >= 0.045) {
+                    const middleAngle = (startAngle + endAngle) / 2;
+                    context.fillStyle = '#FFFFFF';
+                    context.font = 'bold 11px Segoe UI';
+                    context.textAlign = 'center';
+                    context.textBaseline = 'middle';
+                    context.fillText(
+                        `${Number(item.percentage).toFixed(1)}%`,
+                        centerX + Math.cos(middleAngle) * radius * 0.63,
+                        centerY + Math.sin(middleAngle) * radius * 0.63
+                    );
+                }
+                startAngle = endAngle;
+            });
+        }
+
+        function renderViolationStatistics(statistics) {
+            const items = statistics.items || [];
+            drawViolationPieChart(statistics);
+            document.getElementById('violation-chart-legend').innerHTML =
+                items.length
+                    ? items.map((item, index) => `
+                        <div class="violation-chart-legend-item">
+                            <span class="violation-chart-legend-color" style="background:${VIOLATION_CHART_COLORS[index % VIOLATION_CHART_COLORS.length]}"></span>
+                            <span class="violation-chart-legend-name">${escapeHtml(item.event_type)}</span>
+                            <span class="violation-chart-legend-value">${item.count}（${Number(item.percentage).toFixed(1)}%）</span>
+                        </div>
+                    `).join('')
+                    : '<div class="management-help">暂无违法事件统计数据。</div>';
+            setViolationChartZoom(violationChartScale);
+        }
+
+        function renderViolationRecords(payload) {
+            const list = document.getElementById('violation-record-list');
+            const summary = document.getElementById('violation-record-summary');
+            violationRecordCurrentPage = payload.page || 1;
+            violationRecordTotalPages = payload.total_pages || 1;
+            populateViolationFeatureOptions(payload.feature_options || []);
+            renderViolationStatistics(
+                payload.statistics || {total: 0, items: []}
+            );
+            summary.textContent = `共 ${payload.count || 0} 条违法事件记录`;
+            summary.style.color = 'var(--color-success-green)';
+
+            if (!payload.results || !payload.results.length) {
+                list.innerHTML = '<div class="management-help">当前筛选条件下没有识别记录。</div>';
+            } else {
+                list.innerHTML = payload.results.map(record => {
+                    const target = record.target_id || record.target_name || '未知目标';
+                    const canLocate = /^\d{9}$/.test(record.target_id || '');
+                    const locateButton = canLocate
+                        ? `<button class="fence-button violation-record-locate" type="button" data-mmsi="${escapeHtml(record.target_id)}">定位目标</button>`
+                        : '';
+                    const trajectoryButton = record.trajectory_count > 0
+                        ? `<button class="fence-button violation-record-trajectory" type="button" data-record-id="${record.id}" data-trajectory-count="${record.trajectory_count}" aria-pressed="false">查看AIS轨迹（${record.trajectory_count}点）</button>`
+                        : '';
+                    return `
+                        <article class="violation-record-card">
+                            <div class="violation-record-heading">
+                                <span>${escapeHtml(record.event_type)}</span>
+                                <span class="violation-record-risk">${escapeHtml(record.risk_level || record.status || '预警')}</span>
+                            </div>
+                            <div class="violation-record-meta">目标：${escapeHtml(target)}</div>
+                            ${record.target_name ? `<div class="violation-record-meta">名称：${escapeHtml(record.target_name)}</div>` : ''}
+                            <div class="violation-record-meta">最后识别：${formatViolationRecordTime(record.last_detected_at)}</div>
+                            <div class="violation-record-meta">连续识别：${record.occurrence_count} 次</div>
+                            <div class="violation-record-detail">${escapeHtml(record.details || '无补充详情')}</div>
+                            <div class="violation-record-actions">${locateButton}${trajectoryButton}</div>
+                        </article>
+                    `;
+                }).join('');
+            }
+
+            document.getElementById('violation-record-page').textContent =
+                `第 ${violationRecordCurrentPage} / ${violationRecordTotalPages} 页`;
+            document.getElementById('violation-record-previous').disabled =
+                !payload.has_previous;
+            document.getElementById('violation-record-next').disabled =
+                !payload.has_next;
+            list.querySelectorAll('.violation-record-locate').forEach(button => {
+                button.addEventListener('click', () =>
+                    locateShipByMMSI(button.dataset.mmsi, true)
+                );
+            });
+            list.querySelectorAll('.violation-record-trajectory').forEach(button => {
+                button.addEventListener('click', () => {
+                    if (
+                        activeViolationTrajectoryRecordId === button.dataset.recordId
+                        && violationTrajectoryOverlays.length
+                    ) {
+                        clearViolationTrajectory();
+                    } else {
+                        showViolationTrajectory(button.dataset.recordId);
+                    }
+                });
+            });
+            updateViolationTrajectoryControls();
+        }
+
+        async function loadViolationRecords(page = 1) {
+            const summary = document.getElementById('violation-record-summary');
+            summary.textContent = '正在读取违法事件记录……';
+            const parameters = new URLSearchParams({page: String(page), page_size: '20'});
+            const featureId = document.getElementById('violation-record-feature').value;
+            const target = document.getElementById('violation-record-target').value.trim();
+            const start = document.getElementById('violation-record-start').value;
+            const end = document.getElementById('violation-record-end').value;
+            if (featureId) parameters.set('feature_id', featureId);
+            if (target) parameters.set('target', target);
+            if (start) parameters.set('start', start);
+            if (end) parameters.set('end', end);
+            try {
+                const response = await fetch(`${VIOLATION_RECORD_LIST_URL}?${parameters}`);
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || `HTTP ${response.status}`);
+                }
+                renderViolationRecords(payload);
+            } catch (error) {
+                summary.textContent = `读取失败：${error.message}`;
+                summary.style.color = 'var(--color-alert-red)';
+            }
+        }
+
+        function resetViolationRecordFilters() {
+            document.getElementById('violation-record-feature').value = '';
+            document.getElementById('violation-record-target').value = '';
+            document.getElementById('violation-record-start').value = '';
+            document.getElementById('violation-record-end').value = '';
+            loadViolationRecords(1);
+        }
+
+        function updateViolationTrajectoryControls() {
+            const isVisible = violationTrajectoryOverlays.length > 0;
+            const control = document.getElementById('violation-trajectory-control');
+            const status = document.getElementById('violation-trajectory-status');
+            control.hidden = !isVisible;
+            if (activeViolationTrajectoryMmsi) {
+                status.textContent =
+                    `MMSI ${activeViolationTrajectoryMmsi} 历史轨迹已显示` +
+                    `（${activeViolationTrajectoryPointCount}点）`;
+            } else {
+                status.textContent = activeViolationTrajectoryPointCount
+                    ? `违法事件AIS轨迹已显示（${activeViolationTrajectoryPointCount}点）`
+                    : 'AIS轨迹已显示';
+            }
+            document.querySelectorAll('.violation-record-trajectory').forEach(button => {
+                const isActive = isVisible
+                    && activeViolationTrajectoryRecordId === button.dataset.recordId;
+                button.classList.toggle('danger', isActive);
+                button.setAttribute('aria-pressed', String(isActive));
+                button.textContent = isActive
+                    ? '关闭AIS轨迹'
+                    : `查看AIS轨迹（${button.dataset.trajectoryCount}点）`;
+            });
+        }
+
+        function removeViolationTrajectoryOverlays() {
+            if (violationTrajectoryInfoWindow) {
+                violationTrajectoryInfoWindow.close();
+            }
+            violationTrajectoryOverlays.forEach(overlay => overlay.setMap(null));
+            violationTrajectoryOverlays = [];
+        }
+
+        function clearViolationTrajectory() {
+            violationTrajectoryLoadSequence += 1;
+            removeViolationTrajectoryOverlays();
+            activeViolationTrajectoryRecordId = null;
+            activeViolationTrajectoryMmsi = null;
+            activeViolationTrajectoryPointCount = 0;
+            updateViolationTrajectoryControls();
+        }
+
+        function formatViolationTrajectoryPointTitle(record) {
+            const eventType = String(record && record.event_type || '').trim();
+            const shortEventType = eventType
+                .replace(/船舶检测$/, '')
+                .replace(/检测$/, '');
+            return `${shortEventType || 'AIS'}轨迹点`;
+        }
+
+        function showViolationTrajectoryPointInfo(point, position, title) {
+            if (!violationTrajectoryInfoWindow) {
+                violationTrajectoryInfoWindow = new AMap.InfoWindow({
+                    isCustom: true,
+                    offset: new AMap.Pixel(0, -12),
+                });
+            }
+            const speed = point.speed === null || point.speed === ''
+                ? Number.NaN
+                : Number(point.speed);
+            const course = point.course === null || point.course === ''
+                ? Number.NaN
+                : Number(point.course);
+            const longitude = Number(point.longitude);
+            const latitude = Number(point.latitude);
+            const content = `
+                <div class="ship-info-window">
+                    <h4>${escapeHtml(title)}</h4>
+                    <p>MMSI：${escapeHtml(point.mmsi || '未知')}</p>
+                    <p>时间：${formatViolationRecordTime(point.timestamp)}</p>
+                    <p>航速：${Number.isFinite(speed) ? `${speed.toFixed(1)} 节` : '未知'}</p>
+                    <p>航向：${Number.isFinite(course) ? `${course.toFixed(1)}°` : '未知'}</p>
+                    <p>经纬度：${longitude.toFixed(6)}, ${latitude.toFixed(6)}</p>
+                </div>
+            `;
+            violationTrajectoryInfoWindow.setContent(content);
+            violationTrajectoryInfoWindow.open(map, position);
+        }
+
+        function renderViolationTrajectory(
+            sourcePoints,
+            {
+                title = 'AIS轨迹点',
+                recordId = null,
+                mmsi = null,
+                focusMarker = null,
+            } = {}
+        ) {
+            const fallbackMmsi = normalizeMmsi(mmsi);
+            const points = (sourcePoints || []).map(point => ({
+                ...point,
+                mmsi: normalizeMmsi(point.mmsi) || fallbackMmsi,
+                longitude: Number(point.longitude),
+                latitude: Number(point.latitude),
+            })).filter(point =>
+                point.mmsi
+                && point.timestamp
+                && Number.isFinite(point.longitude)
+                && Number.isFinite(point.latitude)
+                && point.longitude >= -180
+                && point.longitude <= 180
+                && point.latitude >= -90
+                && point.latitude <= 90
+            );
+            if (!points.length) {
+                throw new Error('没有可显示的 AIS 轨迹点');
+            }
+
+            removeViolationTrajectoryOverlays();
+            const groupedPoints = new Map();
+            let trajectoryPointEventsSupported = true;
+            points.forEach(point => {
+                if (!groupedPoints.has(point.mmsi)) groupedPoints.set(point.mmsi, []);
+                groupedPoints.get(point.mmsi).push(point);
+            });
+            groupedPoints.forEach(group => {
+                group.sort((left, right) =>
+                    new Date(left.timestamp) - new Date(right.timestamp)
+                );
+                const path = group.map(point => [point.longitude, point.latitude]);
+                const overlay = path.length === 1
+                    ? new AMap.CircleMarker({
+                        center: path[0],
+                        radius: 8,
+                        fillColor: '#E53E3E',
+                        fillOpacity: 0.9,
+                        strokeColor: '#FFFFFF',
+                        strokeWeight: 2,
+                        zIndex: 120,
+                    })
+                    : new AMap.Polyline({
+                        path,
+                        strokeColor: '#E53E3E',
+                        strokeWeight: 5,
+                        strokeOpacity: 0.9,
+                        showDir: true,
+                        zIndex: 120,
+                    });
+                overlay.setMap(map);
+                violationTrajectoryOverlays.push(overlay);
+
+                group.forEach(point => {
+                    const position = [point.longitude, point.latitude];
+                    const pointMarker = new AMap.Marker({
+                        map,
+                        position,
+                        content: '<div class="violation-trajectory-point-hit"></div>',
+                        offset: new AMap.Pixel(-7, -7),
+                        title,
+                        cursor: 'pointer',
+                        zIndex: 130,
+                    });
+                    const showPointInfo = () =>
+                        showViolationTrajectoryPointInfo(point, position, title);
+                    if (trajectoryPointEventsSupported) {
+                        try {
+                            pointMarker.on('mouseover', showPointInfo);
+                            pointMarker.on('click', showPointInfo);
+                            pointMarker.on('mouseout', () => {
+                                if (violationTrajectoryInfoWindow) {
+                                    violationTrajectoryInfoWindow.close();
+                                }
+                            });
+                        } catch (error) {
+                            trajectoryPointEventsSupported = false;
+                            console.warn('当前高德地图版本不支持轨迹点事件，已降级为仅显示轨迹。', error);
+                        }
+                    }
+                    violationTrajectoryOverlays.push(pointMarker);
+                });
+            });
+
+            activeViolationTrajectoryRecordId = recordId === null
+                ? null
+                : String(recordId);
+            activeViolationTrajectoryMmsi = fallbackMmsi || null;
+            activeViolationTrajectoryPointCount = points.length;
+            updateViolationTrajectoryControls();
+            const fitOverlays = focusMarker
+                ? [...violationTrajectoryOverlays, focusMarker]
+                : violationTrajectoryOverlays;
+            map.setFitView(fitOverlays, true, [80, 80, 80, 80], 20);
+            return points;
+        }
+
+        async function showViolationTrajectory(recordId) {
+            const normalizedRecordId = String(recordId);
+            const loadSequence = ++violationTrajectoryLoadSequence;
+            try {
+                const response = await fetch(`${VIOLATION_RECORD_LIST_URL}${normalizedRecordId}/`);
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || `HTTP ${response.status}`);
+                }
+                if (loadSequence !== violationTrajectoryLoadSequence) return;
+                renderViolationTrajectory(payload.record.ais_trajectory || [], {
+                    title: formatViolationTrajectoryPointTitle(payload.record),
+                    recordId: normalizedRecordId,
+                });
+            } catch (error) {
+                if (loadSequence !== violationTrajectoryLoadSequence) return;
+                window.alert(`AIS轨迹加载失败：${error.message}`);
+            }
+        }
+
+        async function showShipTrajectoryByMmsi(mmsi, endAt = '') {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            if (!/^\d{9}$/.test(normalizedMmsi)) {
+                window.alert('MMSI格式不正确，无法查询历史轨迹。');
+                return false;
+            }
+            const loadSequence = ++violationTrajectoryLoadSequence;
+            const parameters = new URLSearchParams({
+                mmsi: normalizedMmsi,
+                page_size: '50',
+            });
+            if (endAt) {
+                parameters.set('end', endAt);
+            }
+            try {
+                const response = await fetch(`${SHIP_TRAJECTORY_URL}?${parameters}`);
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || `HTTP ${response.status}`);
+                }
+                if (loadSequence !== violationTrajectoryLoadSequence) return false;
+                const points = (payload.trajectory || []).map(point => ({
+                    ...point,
+                    mmsi: normalizedMmsi,
+                }));
+                if (!points.length) {
+                    throw new Error(`MMSI ${normalizedMmsi} 暂无已持久化的违法事件轨迹`);
+                }
+
+                let targetShip = resolveShipByMMSI(
+                    normalizedMmsi,
+                    findDetectionTargetByMMSI(normalizedMmsi)
+                );
+                if (!targetShip) {
+                    const latestPoint = [...points].sort((left, right) =>
+                        new Date(right.timestamp) - new Date(left.timestamp)
+                    )[0];
+                    const speed = Number(latestPoint.speed);
+                    const course = Number(latestPoint.course);
+                    targetShip = {
+                        id: normalizedMmsi,
+                        mmsi: normalizedMmsi,
+                        name: `历史目标 ${normalizedMmsi}`,
+                        lon: Number(latestPoint.longitude),
+                        lat: Number(latestPoint.latitude),
+                        speed: Number.isFinite(speed) ? speed : 0,
+                        course: Number.isFinite(course) ? course : 0,
+                        heading: Number.isFinite(course) ? course : 0,
+                        status: Number.isFinite(speed) && speed >= 0.5
+                            ? 'sailing'
+                            : 'anchor',
+                    };
+                    if (!document.getElementById('list-panel-container').classList.contains('active')) {
+                        togglePanel('list-panel-container');
+                    }
+                    ensureLocatedShipMarker(targetShip);
+                    syncShipMarkerVisibility();
+                    selectShip(normalizedMmsi, 'violation');
+                }
+
+                const marker = ensureLocatedShipMarker(targetShip);
+                selectShip(normalizedMmsi, 'violation');
+                renderViolationTrajectory(points, {
+                    title: `MMSI ${normalizedMmsi} 历史轨迹点`,
+                    mmsi: normalizedMmsi,
+                    focusMarker: marker,
+                });
+                openShipPopup(targetShip);
+                return true;
+            } catch (error) {
+                if (loadSequence !== violationTrajectoryLoadSequence) return false;
+                window.alert(`AIS轨迹加载失败：${error.message}`);
+                return false;
+            }
+        }
+
+        async function locateShipWithHistory(mmsi, endAt = '') {
+            const normalizedMmsi = normalizeMmsi(mmsi);
+            if (!/^\d{9}$/.test(normalizedMmsi)) {
+                window.alert('MMSI格式不正确。');
+                return;
+            }
+            closeDetailModal();
+            // 先发起历史轨迹请求，避免实时定位逻辑的异常阻断接口调用。
+            const trajectoryPromise = showShipTrajectoryByMmsi(
+                normalizedMmsi,
+                endAt
+            );
+            try {
+                locateShipByMMSI(normalizedMmsi, true, true);
+            } catch (error) {
+                console.warn(`MMSI ${normalizedMmsi} 实时定位失败，将使用历史末点定位:`, error);
+            }
+            await trajectoryPromise;
+        }
+
+        function toggleViolationRecordsPanel() {
+            const panel = document.getElementById('records-panel-container');
+            const opening = !panel.classList.contains('active');
+            togglePanel('records-panel-container');
+            if (opening) loadViolationRecords(1);
+        }
+
+        document.getElementById('violation-record-previous').addEventListener(
+            'click',
+            () => loadViolationRecords(Math.max(1, violationRecordCurrentPage - 1))
+        );
+        document.getElementById('violation-record-next').addEventListener(
+            'click',
+            () => loadViolationRecords(
+                Math.min(violationRecordTotalPages, violationRecordCurrentPage + 1)
+            )
+        );
+        document.getElementById('violation-chart-viewport').addEventListener(
+            'wheel',
+            event => {
+                event.preventDefault();
+                adjustViolationChartZoom(event.deltaY < 0 ? 0.1 : -0.1);
+            },
+            {passive: false}
+        );
+
         function togglePanel(panelId) {
             const allPanels = document.querySelectorAll('.side-panel-container');
             const allButtons = document.querySelectorAll('.toolbar-icon');
@@ -4240,6 +5335,20 @@
 
             if (isCameraMapPickActive && (panelId !== 'camera-panel-container' || isActive)) {
                 stopCameraMapPick();
+            }
+            if (
+                parkingAreaMouseTool
+                && (panelId !== 'parking-panel-container' || isActive)
+            ) {
+                parkingAreaMouseTool.close(true);
+                parkingAreaMouseTool = null;
+            }
+            if (
+                illegalStayingAreaMouseTool
+                && (panelId !== 'staying-panel-container' || isActive)
+            ) {
+                illegalStayingAreaMouseTool.close(true);
+                illegalStayingAreaMouseTool = null;
             }
 
             allPanels.forEach(panel => panel.classList.remove('active'));
@@ -4526,6 +5635,663 @@
             } catch (error) {
                 setFenceMessage(error.message, true);
             }
+        }
+
+        function openParkingAreaPanel() {
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            document.getElementById('parking-panel-container').classList.add('active');
+            document.getElementById('btn-parking').classList.add('active');
+        }
+
+        function setParkingAreaMessage(message, isError = false) {
+            const element = document.getElementById('parking-area-message');
+            element.textContent = message;
+            element.style.color = isError
+                ? 'var(--color-alert-red)'
+                : 'var(--color-success-green)';
+        }
+
+        function setParkingAreaActiveState(isActive) {
+            const button = document.getElementById('parking-area-active');
+            button.dataset.active = String(isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+            button.classList.toggle('inactive', !isActive);
+            button.textContent = isActive
+                ? '区域状态：已启用（点击停用）'
+                : '区域状态：已停用（点击启用）';
+        }
+
+        function resetParkingAreaForm() {
+            document.getElementById('parking-area-id').value = '';
+            document.getElementById('parking-area-name').value = '';
+            document.getElementById('parking-area-min-lon').value = '';
+            document.getElementById('parking-area-min-lat').value = '';
+            document.getElementById('parking-area-max-lon').value = '';
+            document.getElementById('parking-area-max-lat').value = '';
+            setParkingAreaActiveState(true);
+            setParkingAreaMessage('已切换到新建模式');
+        }
+
+        function parkingAreaPath(area) {
+            return [
+                [area.min_lon, area.min_lat],
+                [area.max_lon, area.min_lat],
+                [area.max_lon, area.max_lat],
+                [area.min_lon, area.max_lat],
+            ];
+        }
+
+        function editParkingArea(areaId) {
+            const area = parkingMonitorAreas.get(Number(areaId));
+            if (!area) return;
+            openParkingAreaPanel();
+            document.getElementById('parking-area-id').value = area.id;
+            document.getElementById('parking-area-name').value = area.name;
+            document.getElementById('parking-area-min-lon').value = area.min_lon;
+            document.getElementById('parking-area-min-lat').value = area.min_lat;
+            document.getElementById('parking-area-max-lon').value = area.max_lon;
+            document.getElementById('parking-area-max-lat').value = area.max_lat;
+            setParkingAreaActiveState(area.is_active);
+            setParkingAreaMessage(`正在编辑：${area.name}`);
+        }
+
+        function viewParkingArea(areaId) {
+            const area = parkingMonitorAreas.get(Number(areaId));
+            const overlays = parkingAreaOverlays.get(Number(areaId));
+            if (!area || !overlays || !map) {
+                setParkingAreaMessage('该监控区暂时无法在地图中显示', true);
+                return;
+            }
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            map.setFitView([overlays.polygon], true, [100, 100, 100, 100], 18);
+            overlays.polygon.setOptions({
+                strokeColor: '#FFFFFF',
+                strokeWeight: 5,
+                fillOpacity: 0.35,
+            });
+            window.setTimeout(() => {
+                if (!parkingAreaOverlays.has(area.id)) return;
+                overlays.polygon.setOptions({
+                    strokeColor: area.is_active ? '#00B5D8' : '#718096',
+                    strokeWeight: 2,
+                    fillOpacity: area.is_active ? 0.16 : 0.06,
+                });
+            }, 1800);
+        }
+
+        function renderParkingAreaOverlays() {
+            parkingAreaOverlays.forEach(overlays => {
+                overlays.polygon.setMap(null);
+                overlays.label.setMap(null);
+            });
+            parkingAreaOverlays.clear();
+            if (!map) return;
+
+            parkingMonitorAreas.forEach(area => {
+                const polygon = new AMap.Polygon({
+                    path: parkingAreaPath(area),
+                    strokeColor: area.is_active ? '#00B5D8' : '#718096',
+                    strokeWeight: 2,
+                    strokeOpacity: area.is_active ? 0.95 : 0.6,
+                    strokeStyle: area.is_active ? 'solid' : 'dashed',
+                    fillColor: area.is_active ? '#007BFF' : '#718096',
+                    fillOpacity: area.is_active ? 0.16 : 0.06,
+                    zIndex: 45,
+                });
+                const center = [
+                    (Number(area.min_lon) + Number(area.max_lon)) / 2,
+                    (Number(area.min_lat) + Number(area.max_lat)) / 2,
+                ];
+                const label = new AMap.Text({
+                    text: escapeHtml(area.name),
+                    position: center,
+                    anchor: 'center',
+                    cursor: 'pointer',
+                    zIndex: 46,
+                    style: {
+                        padding: '4px 8px',
+                        border: `1px solid ${area.is_active ? '#00B5D8' : '#718096'}`,
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(12, 16, 27, 0.86)',
+                        color: area.is_active ? '#76E4F7' : '#A0AEC0',
+                        fontSize: '12px',
+                    },
+                });
+                polygon.on('click', () => editParkingArea(area.id));
+                label.on('click', () => editParkingArea(area.id));
+                polygon.setMap(map);
+                label.setMap(map);
+                parkingAreaOverlays.set(area.id, {polygon, label});
+            });
+        }
+
+        function renderParkingAreaList() {
+            const container = document.getElementById('parking-area-list');
+            container.innerHTML = '';
+            if (!parkingMonitorAreas.size) {
+                container.textContent = '暂无异常停泊监控区';
+                return;
+            }
+            parkingMonitorAreas.forEach(area => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const name = document.createElement('span');
+                name.textContent = area.name;
+                const status = document.createElement('span');
+                status.textContent = area.is_active ? '已启用' : '已停用';
+                status.style.color = area.is_active
+                    ? 'var(--color-success-green)'
+                    : 'var(--color-text-light)';
+                heading.append(name, status);
+
+                const meta = document.createElement('div');
+                meta.className = 'fence-list-meta';
+                meta.textContent =
+                    `${Number(area.min_lon).toFixed(6)}, ${Number(area.min_lat).toFixed(6)} ` +
+                    `至 ${Number(area.max_lon).toFixed(6)}, ${Number(area.max_lat).toFixed(6)}`;
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const viewButton = document.createElement('button');
+                viewButton.className = 'fence-button';
+                viewButton.textContent = '查看';
+                viewButton.onclick = () => viewParkingArea(area.id);
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editParkingArea(area.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = area.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleParkingArea(area);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteParkingArea(area);
+                actions.append(viewButton, editButton, toggleButton, deleteButton);
+                item.append(heading, meta, actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadParkingAreas() {
+            try {
+                const payload = await fenceRequest(
+                    '/AbnormalParking/monitor-areas/',
+                    {method: 'GET'}
+                );
+                parkingMonitorAreas.clear();
+                payload.results.forEach(area => parkingMonitorAreas.set(area.id, area));
+                const rule = payload.rule || {};
+                document.getElementById('parking-rule-summary').textContent =
+                    `检测规则：航速不高于 ${rule.max_speed_knots ?? '-'} 节，` +
+                    `在 ${rule.distance_threshold_metres ?? '-'} 米范围停留 ` +
+                    `${rule.min_duration_minutes ?? '-'} 分钟以上，` +
+                    `至少 ${rule.min_points ?? '-'} 个点。`;
+                renderParkingAreaList();
+                renderParkingAreaOverlays();
+            } catch (error) {
+                setParkingAreaMessage(`监控区加载失败：${error.message}`, true);
+                document.getElementById('parking-area-list').textContent = '加载失败';
+            }
+        }
+
+        function parkingAreaFormData() {
+            const coordinateIds = [
+                'parking-area-min-lon',
+                'parking-area-min-lat',
+                'parking-area-max-lon',
+                'parking-area-max-lat',
+            ];
+            const rawCoordinates = coordinateIds.map(id =>
+                document.getElementById(id).value.trim()
+            );
+            if (rawCoordinates.some(value => !value)) {
+                throw new Error('请填写完整的经纬度范围');
+            }
+            const data = {
+                name: document.getElementById('parking-area-name').value.trim(),
+                min_lon: Number(rawCoordinates[0]),
+                min_lat: Number(rawCoordinates[1]),
+                max_lon: Number(rawCoordinates[2]),
+                max_lat: Number(rawCoordinates[3]),
+                is_active: document.getElementById('parking-area-active').dataset.active === 'true',
+            };
+            if (!data.name) throw new Error('请输入区域名称');
+            if ([data.min_lon, data.min_lat, data.max_lon, data.max_lat]
+                .some(value => !Number.isFinite(value))) {
+                throw new Error('请填写完整、有效的经纬度范围');
+            }
+            if (data.min_lon >= data.max_lon || data.min_lat >= data.max_lat) {
+                throw new Error('最小经纬度必须分别小于最大经纬度');
+            }
+            return data;
+        }
+
+        async function saveParkingArea() {
+            const areaId = document.getElementById('parking-area-id').value;
+            try {
+                const payload = await fenceRequest(
+                    areaId
+                        ? `/AbnormalParking/monitor-areas/${areaId}/`
+                        : '/AbnormalParking/monitor-areas/',
+                    {
+                        method: areaId ? 'PUT' : 'POST',
+                        body: JSON.stringify(parkingAreaFormData()),
+                    }
+                );
+                await loadParkingAreas();
+                editParkingArea(payload.result.id);
+                setParkingAreaMessage(payload.message);
+            } catch (error) {
+                setParkingAreaMessage(error.message, true);
+            }
+        }
+
+        async function toggleParkingArea(area) {
+            try {
+                const payload = await fenceRequest(
+                    `/AbnormalParking/monitor-areas/${area.id}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({is_active: !area.is_active}),
+                    }
+                );
+                await loadParkingAreas();
+                setParkingAreaMessage(payload.message);
+            } catch (error) {
+                setParkingAreaMessage(error.message, true);
+            }
+        }
+
+        async function deleteParkingArea(area) {
+            if (!confirm(`确定删除异常停泊监控区“${area.name}”吗？`)) return;
+            try {
+                const payload = await fenceRequest(
+                    `/AbnormalParking/monitor-areas/${area.id}/`,
+                    {method: 'DELETE'}
+                );
+                resetParkingAreaForm();
+                await loadParkingAreas();
+                setParkingAreaMessage(payload.message);
+            } catch (error) {
+                setParkingAreaMessage(error.message, true);
+            }
+        }
+
+        function startDrawingParkingArea() {
+            if (!map) {
+                setParkingAreaMessage('地图尚未加载完成，请稍后重试', true);
+                return;
+            }
+            openParkingAreaPanel();
+            if (parkingAreaMouseTool) parkingAreaMouseTool.close(true);
+            parkingAreaMouseTool = new AMap.MouseTool(map);
+            parkingAreaMouseTool.rectangle({
+                strokeColor: '#00B5D8',
+                fillColor: '#007BFF',
+                fillOpacity: 0.2,
+                strokeWeight: 2,
+                strokeStyle: 'dashed',
+            });
+            AMap.Event.addListener(parkingAreaMouseTool, 'draw', event => {
+                const bounds = event.obj.getBounds();
+                const southWest = bounds.getSouthWest();
+                const northEast = bounds.getNorthEast();
+                parkingAreaMouseTool.close(true);
+                document.getElementById('parking-area-min-lon').value =
+                    southWest.lng.toFixed(6);
+                document.getElementById('parking-area-min-lat').value =
+                    southWest.lat.toFixed(6);
+                document.getElementById('parking-area-max-lon').value =
+                    northEast.lng.toFixed(6);
+                document.getElementById('parking-area-max-lat').value =
+                    northEast.lat.toFixed(6);
+                setParkingAreaMessage('地图范围已获取，请填写名称后保存');
+            });
+            setParkingAreaMessage('请在地图上拖动框选异常停泊监控范围');
+        }
+
+        function openIllegalStayingAreaPanel() {
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            document.getElementById('staying-panel-container').classList.add('active');
+            document.getElementById('btn-staying').classList.add('active');
+        }
+
+        function setIllegalStayingAreaMessage(message, isError = false) {
+            const element = document.getElementById('staying-area-message');
+            element.textContent = message;
+            element.style.color = isError
+                ? 'var(--color-alert-red)'
+                : 'var(--color-success-green)';
+        }
+
+        function setIllegalStayingAreaActiveState(isActive) {
+            const button = document.getElementById('staying-area-active');
+            button.dataset.active = String(isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+            button.classList.toggle('inactive', !isActive);
+            button.textContent = isActive
+                ? '区域状态：已启用（点击停用）'
+                : '区域状态：已停用（点击启用）';
+        }
+
+        function resetIllegalStayingAreaForm() {
+            document.getElementById('staying-area-id').value = '';
+            document.getElementById('staying-area-name').value = '';
+            document.getElementById('staying-area-reason').value = '';
+            document.getElementById('staying-area-min-lon').value = '';
+            document.getElementById('staying-area-min-lat').value = '';
+            document.getElementById('staying-area-max-lon').value = '';
+            document.getElementById('staying-area-max-lat').value = '';
+            setIllegalStayingAreaActiveState(true);
+            setIllegalStayingAreaMessage('已切换到新建模式');
+        }
+
+        function illegalStayingAreaPath(area) {
+            return [
+                [area.min_lon, area.min_lat],
+                [area.max_lon, area.min_lat],
+                [area.max_lon, area.max_lat],
+                [area.min_lon, area.max_lat],
+            ];
+        }
+
+        function editIllegalStayingArea(areaId) {
+            const area = illegalStayingAreas.get(Number(areaId));
+            if (!area) return;
+            openIllegalStayingAreaPanel();
+            document.getElementById('staying-area-id').value = area.id;
+            document.getElementById('staying-area-name').value = area.name;
+            document.getElementById('staying-area-reason').value = area.reason;
+            document.getElementById('staying-area-min-lon').value = area.min_lon;
+            document.getElementById('staying-area-min-lat').value = area.min_lat;
+            document.getElementById('staying-area-max-lon').value = area.max_lon;
+            document.getElementById('staying-area-max-lat').value = area.max_lat;
+            setIllegalStayingAreaActiveState(area.is_active);
+            setIllegalStayingAreaMessage(`正在编辑：${area.name}`);
+        }
+
+        function viewIllegalStayingArea(areaId) {
+            const area = illegalStayingAreas.get(Number(areaId));
+            const overlays = illegalStayingAreaOverlays.get(Number(areaId));
+            if (!area || !overlays || !map) {
+                setIllegalStayingAreaMessage('该监控区暂时无法在地图中显示', true);
+                return;
+            }
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            map.setFitView([overlays.polygon], true, [100, 100, 100, 100], 18);
+            overlays.polygon.setOptions({
+                strokeColor: '#FFFFFF',
+                strokeWeight: 5,
+                fillOpacity: 0.36,
+            });
+            window.setTimeout(() => {
+                if (!illegalStayingAreaOverlays.has(area.id)) return;
+                overlays.polygon.setOptions({
+                    strokeColor: area.is_active ? '#F56565' : '#718096',
+                    strokeWeight: 2,
+                    fillOpacity: area.is_active ? 0.18 : 0.06,
+                });
+            }, 1800);
+        }
+
+        function renderIllegalStayingAreaOverlays() {
+            illegalStayingAreaOverlays.forEach(overlays => {
+                overlays.polygon.setMap(null);
+                overlays.label.setMap(null);
+            });
+            illegalStayingAreaOverlays.clear();
+            if (!map) return;
+
+            illegalStayingAreas.forEach(area => {
+                const polygon = new AMap.Polygon({
+                    path: illegalStayingAreaPath(area),
+                    strokeColor: area.is_active ? '#F56565' : '#718096',
+                    strokeWeight: 2,
+                    strokeOpacity: area.is_active ? 0.98 : 0.6,
+                    strokeStyle: area.is_active ? 'solid' : 'dashed',
+                    fillColor: area.is_active ? '#E53E3E' : '#718096',
+                    fillOpacity: area.is_active ? 0.18 : 0.06,
+                    zIndex: 47,
+                });
+                const center = [
+                    (Number(area.min_lon) + Number(area.max_lon)) / 2,
+                    (Number(area.min_lat) + Number(area.max_lat)) / 2,
+                ];
+                const label = new AMap.Text({
+                    text: escapeHtml(area.name),
+                    position: center,
+                    anchor: 'center',
+                    cursor: 'pointer',
+                    zIndex: 48,
+                    title: area.reason,
+                    style: {
+                        padding: '4px 8px',
+                        border: `1px solid ${area.is_active ? '#F56565' : '#718096'}`,
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(12, 16, 27, 0.86)',
+                        color: area.is_active ? '#FEB2B2' : '#A0AEC0',
+                        fontSize: '12px',
+                    },
+                });
+                polygon.on('click', () => editIllegalStayingArea(area.id));
+                label.on('click', () => editIllegalStayingArea(area.id));
+                polygon.setMap(map);
+                label.setMap(map);
+                illegalStayingAreaOverlays.set(area.id, {polygon, label});
+            });
+        }
+
+        function renderIllegalStayingAreaList() {
+            const container = document.getElementById('staying-area-list');
+            container.innerHTML = '';
+            if (!illegalStayingAreas.size) {
+                container.textContent = '暂无非法驻留监控区';
+                return;
+            }
+            illegalStayingAreas.forEach(area => {
+                const item = document.createElement('div');
+                item.className = 'fence-list-item';
+
+                const heading = document.createElement('div');
+                heading.className = 'fence-list-heading';
+                const name = document.createElement('span');
+                name.textContent = area.name;
+                const status = document.createElement('span');
+                status.textContent = area.is_active ? '已启用' : '已停用';
+                status.style.color = area.is_active
+                    ? 'var(--color-alert-red)'
+                    : 'var(--color-text-light)';
+                heading.append(name, status);
+
+                const reason = document.createElement('div');
+                reason.className = 'fence-list-meta';
+                reason.textContent = `禁停原因：${area.reason}`;
+                const meta = document.createElement('div');
+                meta.className = 'fence-list-meta';
+                meta.textContent =
+                    `${Number(area.min_lon).toFixed(6)}, ${Number(area.min_lat).toFixed(6)} ` +
+                    `至 ${Number(area.max_lon).toFixed(6)}, ${Number(area.max_lat).toFixed(6)}`;
+
+                const actions = document.createElement('div');
+                actions.className = 'fence-list-actions';
+                const viewButton = document.createElement('button');
+                viewButton.className = 'fence-button';
+                viewButton.textContent = '查看';
+                viewButton.onclick = () => viewIllegalStayingArea(area.id);
+                const editButton = document.createElement('button');
+                editButton.className = 'fence-button';
+                editButton.textContent = '编辑';
+                editButton.onclick = () => editIllegalStayingArea(area.id);
+                const toggleButton = document.createElement('button');
+                toggleButton.className = 'fence-button';
+                toggleButton.textContent = area.is_active ? '停用' : '启用';
+                toggleButton.onclick = () => toggleIllegalStayingArea(area);
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'fence-button danger';
+                deleteButton.textContent = '删除';
+                deleteButton.onclick = () => deleteIllegalStayingArea(area);
+                actions.append(viewButton, editButton, toggleButton, deleteButton);
+                item.append(heading, reason, meta, actions);
+                container.appendChild(item);
+            });
+        }
+
+        async function loadIllegalStayingAreas() {
+            try {
+                const payload = await fenceRequest(
+                    '/IllegalStaying/monitor-areas/',
+                    {method: 'GET'}
+                );
+                illegalStayingAreas.clear();
+                payload.results.forEach(area => illegalStayingAreas.set(area.id, area));
+                const rule = payload.rule || {};
+                document.getElementById('staying-rule-summary').textContent =
+                    `检测规则：航速不高于 ${rule.max_speed_knots ?? '-'} 节，` +
+                    `在 ${rule.distance_threshold_metres ?? '-'} 米范围驻留 ` +
+                    `${rule.min_duration_minutes ?? '-'} 分钟以上，` +
+                    `至少 ${rule.min_points ?? '-'} 个点。`;
+                renderIllegalStayingAreaList();
+                renderIllegalStayingAreaOverlays();
+            } catch (error) {
+                setIllegalStayingAreaMessage(`监控区加载失败：${error.message}`, true);
+                document.getElementById('staying-area-list').textContent = '加载失败';
+            }
+        }
+
+        function illegalStayingAreaFormData() {
+            const coordinateIds = [
+                'staying-area-min-lon',
+                'staying-area-min-lat',
+                'staying-area-max-lon',
+                'staying-area-max-lat',
+            ];
+            const rawCoordinates = coordinateIds.map(id =>
+                document.getElementById(id).value.trim()
+            );
+            if (rawCoordinates.some(value => !value)) {
+                throw new Error('请填写完整的经纬度范围');
+            }
+            const data = {
+                name: document.getElementById('staying-area-name').value.trim(),
+                reason: document.getElementById('staying-area-reason').value.trim(),
+                min_lon: Number(rawCoordinates[0]),
+                min_lat: Number(rawCoordinates[1]),
+                max_lon: Number(rawCoordinates[2]),
+                max_lat: Number(rawCoordinates[3]),
+                is_active: document.getElementById('staying-area-active').dataset.active === 'true',
+            };
+            if (!data.name) throw new Error('请输入区域名称');
+            if (!data.reason) throw new Error('请输入禁停原因');
+            if ([data.min_lon, data.min_lat, data.max_lon, data.max_lat]
+                .some(value => !Number.isFinite(value))) {
+                throw new Error('请填写完整、有效的经纬度范围');
+            }
+            if (data.min_lon >= data.max_lon || data.min_lat >= data.max_lat) {
+                throw new Error('最小经纬度必须分别小于最大经纬度');
+            }
+            return data;
+        }
+
+        async function saveIllegalStayingArea() {
+            const areaId = document.getElementById('staying-area-id').value;
+            try {
+                const payload = await fenceRequest(
+                    areaId
+                        ? `/IllegalStaying/monitor-areas/${areaId}/`
+                        : '/IllegalStaying/monitor-areas/',
+                    {
+                        method: areaId ? 'PUT' : 'POST',
+                        body: JSON.stringify(illegalStayingAreaFormData()),
+                    }
+                );
+                await loadIllegalStayingAreas();
+                editIllegalStayingArea(payload.result.id);
+                setIllegalStayingAreaMessage(payload.message);
+            } catch (error) {
+                setIllegalStayingAreaMessage(error.message, true);
+            }
+        }
+
+        async function toggleIllegalStayingArea(area) {
+            try {
+                const payload = await fenceRequest(
+                    `/IllegalStaying/monitor-areas/${area.id}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({is_active: !area.is_active}),
+                    }
+                );
+                await loadIllegalStayingAreas();
+                setIllegalStayingAreaMessage(payload.message);
+            } catch (error) {
+                setIllegalStayingAreaMessage(error.message, true);
+            }
+        }
+
+        async function deleteIllegalStayingArea(area) {
+            if (!confirm(`确定删除非法驻留监控区“${area.name}”吗？`)) return;
+            try {
+                const payload = await fenceRequest(
+                    `/IllegalStaying/monitor-areas/${area.id}/`,
+                    {method: 'DELETE'}
+                );
+                resetIllegalStayingAreaForm();
+                await loadIllegalStayingAreas();
+                setIllegalStayingAreaMessage(payload.message);
+            } catch (error) {
+                setIllegalStayingAreaMessage(error.message, true);
+            }
+        }
+
+        function startDrawingIllegalStayingArea() {
+            if (!map) {
+                setIllegalStayingAreaMessage('地图尚未加载完成，请稍后重试', true);
+                return;
+            }
+            openIllegalStayingAreaPanel();
+            if (illegalStayingAreaMouseTool) illegalStayingAreaMouseTool.close(true);
+            illegalStayingAreaMouseTool = new AMap.MouseTool(map);
+            illegalStayingAreaMouseTool.rectangle({
+                strokeColor: '#F56565',
+                fillColor: '#E53E3E',
+                fillOpacity: 0.22,
+                strokeWeight: 2,
+                strokeStyle: 'dashed',
+            });
+            AMap.Event.addListener(illegalStayingAreaMouseTool, 'draw', event => {
+                const bounds = event.obj.getBounds();
+                const southWest = bounds.getSouthWest();
+                const northEast = bounds.getNorthEast();
+                illegalStayingAreaMouseTool.close(true);
+                illegalStayingAreaMouseTool = null;
+                document.getElementById('staying-area-min-lon').value =
+                    southWest.lng.toFixed(6);
+                document.getElementById('staying-area-min-lat').value =
+                    southWest.lat.toFixed(6);
+                document.getElementById('staying-area-max-lon').value =
+                    northEast.lng.toFixed(6);
+                document.getElementById('staying-area-max-lat').value =
+                    northEast.lat.toFixed(6);
+                setIllegalStayingAreaMessage('地图范围已获取，请填写名称和禁停原因后保存');
+            });
+            setIllegalStayingAreaMessage('请在地图上拖动框选非法驻留监控范围');
         }
 
         function openBlacklistPanel() {
@@ -5391,8 +7157,6 @@
 
         const SMUGGLING_ZONE_COLORS = {
             hong_kong_origin: '#00E5FF',
-            customs_port: '#48BB78',
-            non_customs_landing: '#E53E3E',
         };
 
         function switchSmugglingManagementTab(tabName) {
@@ -5649,17 +7413,28 @@
             origin.innerHTML = '';
             destination.innerHTML = '';
             origin.add(new Option('不限香港起航区', ''));
-            destination.add(new Option('不限非设关靠泊区', ''));
+            destination.add(new Option('不限广东港口', ''));
             smugglingZones.forEach(zone => {
                 const label = zone.is_active
                     ? zone.name
                     : `${zone.name}（已停用）`;
                 if (zone.zone_type === 'hong_kong_origin') {
                     origin.add(new Option(label, String(zone.id)));
-                } else if (zone.zone_type === 'non_customs_landing') {
-                    destination.add(new Option(label, String(zone.id)));
                 }
             });
+            Array.from(smugglingPorts.values())
+                .sort((left, right) =>
+                    `${left.locode} ${left.name}`.localeCompare(
+                        `${right.locode} ${right.name}`,
+                        'zh-CN'
+                    )
+                )
+                .forEach(port => {
+                    destination.add(new Option(
+                        `${port.name}（${port.locode}）`,
+                        String(port.id)
+                    ));
+                });
             if ([...origin.options].some(
                 option => option.value === selectedOrigin
             )) {
@@ -5692,6 +7467,25 @@
                 );
                 document.getElementById('smuggling-zone-list').textContent =
                     '加载失败';
+            }
+        }
+
+        async function loadSmugglingPorts() {
+            try {
+                const payload = await fenceRequest(
+                    '/Smuggling/ports/',
+                    {method: 'GET'}
+                );
+                smugglingPorts.clear();
+                payload.results.forEach(port =>
+                    smugglingPorts.set(port.id, port)
+                );
+                refreshSmugglingZoneSelectors();
+            } catch (error) {
+                setSmugglingPermitMessage(
+                    `广东港口加载失败：${error.message}`,
+                    true
+                );
             }
         }
 
@@ -5874,9 +7668,9 @@
                     ? ''
                     : String(permit.origin_zone_id);
             document.getElementById('smuggling-permit-destination').value =
-                permit.destination_zone_id == null
+                permit.destination_port_id == null
                     ? ''
-                    : String(permit.destination_zone_id);
+                    : String(permit.destination_port_id);
             document.getElementById('smuggling-permit-valid-from').value =
                 toDateTimeLocal(permit.valid_from);
             document.getElementById('smuggling-permit-valid-until').value =
@@ -5904,7 +7698,7 @@
                     permit.mmsi,
                     permit.permit_number,
                     permit.origin_zone_name,
-                    permit.destination_zone_name,
+                    permit.destination_port_name,
                     permit.notes,
                 ].some(value =>
                     String(value || '').toLowerCase().includes(query)
@@ -5939,7 +7733,7 @@
                 route.className = 'fence-list-meta';
                 route.textContent =
                     `${permit.origin_zone_name || '任意香港起航区'} → ` +
-                    `${permit.destination_zone_name || '任意非设关靠泊区'}`;
+                    `${permit.destination_port_name || '任意广东港口'}`;
                 const period = document.createElement('div');
                 period.className = 'fence-list-meta';
                 period.textContent =
@@ -6046,7 +7840,7 @@
                     origin_zone_id: originValue
                         ? Number(originValue)
                         : null,
-                    destination_zone_id: destinationValue
+                    destination_port_id: destinationValue
                         ? Number(destinationValue)
                         : null,
                     valid_from: validFrom,

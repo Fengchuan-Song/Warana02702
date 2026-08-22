@@ -9,6 +9,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET
 
+from AISData.maritime_zones import (
+    MaritimeZoneDataError,
+    PORT_ZONE_TYPES,
+    zones_containing_point,
+)
 from AISData.normalization import normalise_ais_name
 from IllegalAnchored.zones import classify_location
 
@@ -102,6 +107,17 @@ def _normalise_ship(ship_info, config):
 def _is_underway_candidate(ship, config):
     if ship["at_dock"] or ship["matched_port_name"]:
         return False
+    try:
+        if zones_containing_point(
+            ship["lon"],
+            ship["lat"],
+            zone_types=PORT_ZONE_TYPES,
+        ):
+            return False
+    except MaritimeZoneDataError:
+        # Keep detection available when the optional encrypted zone dataset
+        # cannot be loaded; upstream dock/port annotations still apply.
+        pass
     if classify_location(ship["lon"], ship["lat"])["state"] == "authorized":
         return False
     if ship["nav_status"] is None:

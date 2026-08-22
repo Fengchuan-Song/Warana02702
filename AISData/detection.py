@@ -3,12 +3,13 @@ import logging
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
 from AISData.normalization import normalise_ais_snapshot
+from AISData.model_parameters import apply_runtime_parameter_override
 
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 DETECTION_CACHE_PREFIX = "detection_result:"
 EXTERNAL_DETECTION_FEATURES = {
     "detect-overload",
+    "detect-ais-off",
+    "detect-spoofing",
 }
 
 # feature_id must match the checkbox names used by Demo_v10.html.
@@ -101,7 +104,8 @@ def _execute_detector(feature_id, detector, ship_list):
     try:
         if isinstance(detector, str):
             detector = import_string(detector)
-        response = detector(_internal_request(feature_id, ship_list))
+        with apply_runtime_parameter_override(feature_id):
+            response = detector(_internal_request(feature_id, ship_list))
         if response.status_code != 200:
             raise RuntimeError(
                 f"detector returned HTTP {response.status_code}"
@@ -138,7 +142,8 @@ def run_detector(feature_id, ship_list=None, on_result=None):
         ship_list = cache.get("latest_ais_data_raw", [])
     ship_list = normalise_ais_snapshot(ship_list)
 
-    close_old_connections()
+    if not connection.in_atomic_block:
+        close_old_connections()
     try:
         payload = _execute_detector(
             feature_id,
@@ -150,8 +155,22 @@ def run_detector(feature_id, ship_list=None, on_result=None):
             payload,
             timeout=getattr(settings, "CACHE_TTL", 300),
         )
+        try:
+            from AISData.violation_records import persist_detection_payload
+
+            persist_detection_payload(
+                feature_id,
+                payload,
+                ais_snapshot=ship_list,
+            )
+        except Exception:
+            logger.exception(
+                "Could not persist violation result for %s",
+                feature_id,
+            )
         if on_result is not None:
             on_result(feature_id, payload)
         return payload
     finally:
-        close_old_connections()
+        if not connection.in_atomic_block:
+            close_old_connections()

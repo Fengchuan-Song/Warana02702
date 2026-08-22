@@ -1,6 +1,7 @@
 import json
 import math
 from datetime import datetime, timezone as dt_timezone
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.core.cache import cache
@@ -14,6 +15,16 @@ from pytz import UnknownTimeZoneError
 from pytz import timezone as pytz_timezone
 
 from AISData.normalization import normalise_ais_name
+from AISData.maritime_zones import (
+    MaritimeZoneDataError,
+    PORT_ZONE_TYPES,
+    get_maritime_zones,
+)
+from AISData.guangdong_coastline import (
+    GuangdongCoastlineDataError,
+    guangdong_nearshore_relation,
+    load_guangdong_coastline,
+)
 from CrossingBoundary.views import (
     _normalise_vertices as normalise_polygon_vertices,
 )
@@ -22,8 +33,8 @@ from .models import SmugglingVoyagePermit, SmugglingZone
 
 
 EARTH_RADIUS_METRES = 6_371_000.0
-SMUGGLING_STATE_CACHE_KEY = "smuggling:voyage_state:v1"
-SMUGGLING_EVENT_CACHE_KEY = "smuggling:recent_events:v1"
+SMUGGLING_STATE_CACHE_KEY = "smuggling:voyage_state:v2"
+SMUGGLING_EVENT_CACHE_KEY = "smuggling:recent_events:v2"
 
 DEFAULT_SMUGGLING_CONFIG = {
     "max_position_age_seconds": 120.0,
@@ -35,6 +46,8 @@ DEFAULT_SMUGGLING_CONFIG = {
     "landing_speed_knots": 1.5,
     "landing_minimum_duration_seconds": 300.0,
     "landing_minimum_observations": 3.0,
+    "guangdong_nearshore_range_metres": 5000.0,
+    "guangdong_port_buffer_metres": 3000.0,
     "draught_change_metres": 0.5,
     "small_craft_length_metres": 50.0,
     "fast_craft_speed_knots": 15.0,
@@ -224,6 +237,25 @@ def _compile_zone(zone):
     }
 
 
+def _guangdong_ports(config):
+    buffer_metres = config["guangdong_port_buffer_metres"]
+    return [
+        {
+            "object": SimpleNamespace(
+                id=zone.source_id,
+                name=zone.name,
+                locode=zone.locode,
+                zone_type=zone.zone_type,
+            ),
+            "vertices": list(zone.points),
+            "bounds": zone.bounds,
+            "buffer_metres": buffer_metres,
+        }
+        for zone in get_maritime_zones(zone_types=PORT_ZONE_TYPES)
+        if zone.region == "广东"
+    ]
+
+
 def _zone_relation(ship, zone):
     min_lon, min_lat, max_lon, max_lat = zone["bounds"]
     buffer_metres = zone["buffer_metres"]
@@ -329,18 +361,18 @@ def _active_permits(reference_time, mmsis):
         mmsi__in=mmsis,
         valid_from__lte=reference_time,
         valid_until__gte=reference_time,
-    ).select_related("origin_zone", "destination_zone")
+    ).select_related("origin_zone")
     result = {}
     for permit in permits:
         result.setdefault(permit.mmsi, []).append(permit)
     return result
 
 
-def _matching_permit(permits, origin_zone_id, destination_zone_id):
+def _matching_permit(permits, origin_zone_id, destination_port_id):
     for permit in permits:
         if permit.origin_zone_id not in (None, origin_zone_id):
             continue
-        if permit.destination_zone_id not in (None, destination_zone_id):
+        if permit.destination_port_id not in (None, destination_port_id):
             continue
         return permit
     return None
@@ -358,19 +390,18 @@ def _risk_rank(label):
     return {"中风险": 1, "高风险": 2, "极高风险": 3}.get(label, 0)
 
 
-def _event_id(mmsi, destination_zone_id, departure_at):
+def _event_id(mmsi, departure_at):
     compact = str(departure_at).replace("-", "").replace(":", "")
-    return f"smuggling:{mmsi}:{destination_zone_id}:{compact}"
+    return f"smuggling:{mmsi}:guangdong-non-port:{compact}"
 
 
-def _build_event(ship, state, destination, relation, score, reasons, is_new):
-    destination_object = destination["object"]
+def _build_event(ship, state, relation, config, score, reasons, is_new):
     departure_at = state["departure_at"]
     risk = _risk_label(score)
     details = (
         f"{ship['name']}（{ship['mmsi']}）已从香港起航区驶出，"
-        f"当前{'进入' if relation['inside'] else '接近'}广东非设关区域"
-        f"“{destination_object.name}”；风险依据："
+        f"当前进入广东非港口近岸范围，距广东海岸线约"
+        f"{relation.distance_metres:.0f}米；风险依据："
         f"{'、'.join(reasons)}。该结果为走私风险研判，不代表执法认定。"
     )
     return {
@@ -383,10 +414,13 @@ def _build_event(ship, state, destination, relation, score, reasons, is_new):
         "risk_reasons": reasons,
         "origin_zone_id": state["origin_zone_id"],
         "origin_zone_name": state["origin_zone_name"],
-        "destination_zone_id": destination_object.id,
-        "destination_zone_name": destination_object.name,
-        "distance_to_zone_metres": round(relation["distance_metres"], 1),
-        "inside_destination_zone": relation["inside"],
+        "destination_type": "guangdong_non_port_nearshore",
+        "distance_to_coast_metres": round(relation.distance_metres, 1),
+        "guangdong_nearshore_range_metres": config[
+            "guangdong_nearshore_range_metres"
+        ],
+        "inside_guangdong_nearshore": relation.near,
+        "inside_guangdong_port_buffer": False,
         "departure_at": departure_at,
         "night_departure": bool(state.get("night_departure")),
         "speed": ship["speed"],
@@ -407,9 +441,7 @@ def _build_event(ship, state, destination, relation, score, reasons, is_new):
         "maximum_ais_gap_seconds": round(
             float(state.get("maximum_ais_gap_seconds") or 0), 1
         ),
-        "event_id": _event_id(
-            ship["mmsi"], destination_object.id, departure_at
-        ),
+        "event_id": _event_id(ship["mmsi"], departure_at),
         "is_new": is_new,
         "first_detected_at": state["first_alert_at"],
         "details": details,
@@ -417,12 +449,20 @@ def _build_event(ship, state, destination, relation, score, reasons, is_new):
     }
 
 
-def _retain_recent_events(reference_time, new_events, retention_minutes):
+def _retain_recent_events(
+    reference_time,
+    new_events,
+    retention_minutes,
+    suppressed_event_ids=(),
+):
+    suppressed_event_ids = set(suppressed_event_ids)
     retained = {}
     cached_events = cache.get(SMUGGLING_EVENT_CACHE_KEY, [])
     if isinstance(cached_events, list):
         for event in cached_events:
             if not isinstance(event, dict) or not event.get("event_id"):
+                continue
+            if event["event_id"] in suppressed_event_ids:
                 continue
             timestamp = _parse_timestamp(event.get("first_detected_at"))
             if timestamp is None:
@@ -502,8 +542,7 @@ def _process_point(
     ship,
     state,
     origin_zones,
-    legal_zones,
-    destination_zones,
+    destination_ports,
     permits_by_mmsi,
     config,
 ):
@@ -513,7 +552,7 @@ def _process_point(
         _parse_timestamp(previous.get("last_seen")) if previous else None
     )
     if previous_seen is not None and ship["timestamp"] <= previous_seen:
-        return None, False, False
+        return None, False, False, None, False
 
     gap_seconds = (
         (ship["timestamp"] - previous_seen).total_seconds()
@@ -533,7 +572,7 @@ def _process_point(
         )
         if not same_origin:
             state[mmsi] = _initial_origin_state(ship, origin)
-            return None, False, False
+            return None, False, False, None, False
 
         first_seen = _parse_timestamp(previous["origin_first_seen"])
         observations = int(previous.get("origin_observations", 1)) + 1
@@ -566,16 +605,16 @@ def _process_point(
             }
         )
         state[mmsi] = previous
-        return None, False, False
+        return None, False, False, None, False
 
     if previous is None:
-        return None, False, False
+        return None, False, False, None, False
 
     phase = previous.get("phase")
     if phase == "in_origin":
         if not previous.get("origin_confirmed"):
             state.pop(mmsi, None)
-            return None, False, False
+            return None, False, False, None, False
         departure_at = ship["timestamp"].isoformat()
         previous.update(
             {
@@ -594,21 +633,17 @@ def _process_point(
             }
         )
         state[mmsi] = previous
-        return None, False, False
-
-    if phase == "legal_arrival":
-        state.pop(mmsi, None)
-        return None, False, False
+        return None, False, False, None, False
 
     departure_time = _parse_timestamp(previous.get("departure_at"))
     if (
-        phase not in {"departed", "approaching"}
+        phase not in {"departed", "nearshore_non_port"}
         or departure_time is None
         or (ship["timestamp"] - departure_time).total_seconds()
         > config["maximum_voyage_hours"] * 3600
     ):
         state.pop(mmsi, None)
-        return None, False, False
+        return None, False, False, None, False
 
     if gap_seconds is not None and gap_seconds > 0:
         previous["maximum_ais_gap_seconds"] = max(
@@ -627,47 +662,52 @@ def _process_point(
     previous["last_seen"] = ship["timestamp"].isoformat()
     previous["last_location"] = [ship["longitude"], ship["latitude"]]
 
-    legal_zone, _ = _nearest_zone(ship, legal_zones, include_buffer=True)
-    if legal_zone is not None:
-        previous["phase"] = "legal_arrival"
-        state[mmsi] = previous
-        return None, False, False
-
-    destination, relation = _nearest_zone(
-        ship, destination_zones, include_buffer=True
+    port, _ = _nearest_zone(
+        ship, destination_ports, include_buffer=True
     )
-    if destination is None:
+    if port is not None:
+        port_id = port["object"].id
+        permit = _matching_permit(
+            permits_by_mmsi.get(mmsi, []),
+            previous.get("origin_zone_id"),
+            port_id,
+        )
+        suppressed_event_id = _event_id(mmsi, previous["departure_at"])
+        # Approaching any configured Guangdong port is a normal voyage outcome.
+        # End the Hong Kong-origin voyage so a later local departure cannot be
+        # mistaken for continuation toward an unregulated landing site.
+        state.pop(mmsi, None)
+        return (
+            None,
+            False,
+            permit is not None,
+            suppressed_event_id,
+            True,
+        )
+
+    previous.pop("normal_port_id", None)
+    previous.pop("normal_port_name", None)
+    previous.pop("distance_to_port_metres", None)
+    nearshore = guangdong_nearshore_relation(
+        ship["longitude"],
+        ship["latitude"],
+        config["guangdong_nearshore_range_metres"],
+    )
+    if not nearshore.near:
         previous["phase"] = "departed"
-        previous.pop("target_zone_id", None)
         previous.pop("landing_first_seen", None)
         previous.pop("landing_observations", None)
         state[mmsi] = previous
-        return None, False, False
+        return None, False, False, None, False
 
-    destination_id = destination["object"].id
-    permit = _matching_permit(
-        permits_by_mmsi.get(mmsi, []),
-        previous.get("origin_zone_id"),
-        destination_id,
-    )
-    if permit is not None:
-        previous["phase"] = "departed"
-        previous["permit_number"] = permit.permit_number
-        state[mmsi] = previous
-        return None, False, True
-
-    same_target = previous.get("target_zone_id") == destination_id
-    previous["phase"] = "approaching"
-    previous["target_zone_id"] = destination_id
-    previous["target_zone_name"] = destination["object"].name
+    same_target = previous.get("phase") == "nearshore_non_port"
+    previous["phase"] = "nearshore_non_port"
+    previous["distance_to_coast_metres"] = nearshore.distance_metres
 
     landing_evidence = (
-        relation["inside"]
-        and (
-            ship["speed"] <= config["landing_speed_knots"]
-            or ship["at_dock"]
-            or ship["nav_status"] in {1, 5}
-        )
+        ship["speed"] <= config["landing_speed_knots"]
+        or ship["at_dock"]
+        or ship["nav_status"] in {1, 5}
     )
     if landing_evidence:
         if same_target and previous.get("landing_first_seen"):
@@ -699,13 +739,10 @@ def _process_point(
     )
 
     score = 40
-    reasons = ["香港起航后接近广东非设关区域"]
+    reasons = ["香港起航后进入广东非港口近岸范围"]
     if previous.get("night_departure"):
         score += 15
         reasons.append("夜间起航")
-    if relation["inside"]:
-        score += 10
-        reasons.append("已进入非设关区域")
     if landing_confirmed:
         score += 20
         reasons.append(
@@ -748,18 +785,20 @@ def _process_point(
         previous["alerted_risk"] = risk
     state[mmsi] = previous
     if score < config["minimum_risk_score"]:
-        return None, False, False
+        return None, False, False, None, False
     return (
         _build_event(
             ship,
             previous,
-            destination,
-            relation,
+            nearshore,
+            config,
             score,
             reasons,
             is_new,
         ),
         is_new,
+        False,
+        None,
         False,
     )
 
@@ -772,6 +811,7 @@ def _response(
     stale_count=0,
     invalid_zone_count=0,
     authorized_count=0,
+    normal_port_count=0,
     zone_counts=None,
     config=None,
 ):
@@ -788,6 +828,7 @@ def _response(
         "stale_count": stale_count,
         "invalid_zone_count": invalid_zone_count,
         "authorized_count": authorized_count,
+        "normal_port_count": normal_port_count,
         "zone_counts": zone_counts or {},
         "message": "检测成功" if timestamp else "暂无有效AIS数据",
     }
@@ -801,6 +842,12 @@ def _response(
             "landing_speed_knots": config["landing_speed_knots"],
             "landing_minimum_duration_seconds": config[
                 "landing_minimum_duration_seconds"
+            ],
+            "guangdong_nearshore_range_metres": config[
+                "guangdong_nearshore_range_metres"
+            ],
+            "guangdong_port_buffer_metres": config[
+                "guangdong_port_buffer_metres"
             ],
             "minimum_risk_score": config["minimum_risk_score"],
         }
@@ -826,26 +873,34 @@ def detect_smuggling(request):
             config=config,
         )
 
-    compiled_by_type = {
-        SmugglingZone.HONG_KONG_ORIGIN: [],
-        SmugglingZone.CUSTOMS_PORT: [],
-        SmugglingZone.NON_CUSTOMS_LANDING: [],
-    }
+    origin_zones = []
     invalid_zone_count = 0
-    for zone in SmugglingZone.objects.filter(is_active=True):
+    for zone in SmugglingZone.objects.filter(
+        zone_type=SmugglingZone.HONG_KONG_ORIGIN,
+        is_active=True,
+    ):
         try:
-            compiled_by_type[zone.zone_type].append(_compile_zone(zone))
+            origin_zones.append(_compile_zone(zone))
         except (KeyError, TypeError, ValueError):
             invalid_zone_count += 1
 
+    try:
+        destination_ports = _guangdong_ports(config)
+    except (MaritimeZoneDataError, ValueError):
+        destination_ports = []
+    try:
+        coastline_data = load_guangdong_coastline()
+    except GuangdongCoastlineDataError:
+        coastline_data = None
+
     zone_counts = {
-        zone_type: len(zones)
-        for zone_type, zones in compiled_by_type.items()
+        SmugglingZone.HONG_KONG_ORIGIN: len(origin_zones),
+        "guangdong_port": len(destination_ports),
+        "guangdong_coastline_segment": (
+            len(coastline_data["segments"]) if coastline_data else 0
+        ),
     }
-    if (
-        not compiled_by_type[SmugglingZone.HONG_KONG_ORIGIN]
-        or not compiled_by_type[SmugglingZone.NON_CUSTOMS_LANDING]
-    ):
+    if not origin_zones or not destination_ports or coastline_data is None:
         response = _response(
             timestamp=reference_time,
             skipped_count=skipped,
@@ -856,7 +911,15 @@ def detect_smuggling(request):
         )
         payload = json.loads(response.content)
         payload["configured"] = False
-        payload["message"] = "请先配置香港起航区和广东非设关靠泊区"
+        payload["message"] = (
+            "请先启用香港地区空间范围"
+            if not origin_zones
+            else (
+                "广东港口数据不可用"
+                if not destination_ports
+                else "广东海岸线数据不可用"
+            )
+        )
         return JsonResponse(payload)
 
     state = _load_state(
@@ -868,13 +931,14 @@ def detect_smuggling(request):
     new_events = []
     new_count = 0
     authorized_count = 0
+    normal_port_count = 0
+    suppressed_event_ids = set()
     for ship in ships:
-        event, is_new, authorized = _process_point(
+        event, is_new, authorized, suppressed_event_id, normal_port = _process_point(
             ship,
             state,
-            compiled_by_type[SmugglingZone.HONG_KONG_ORIGIN],
-            compiled_by_type[SmugglingZone.CUSTOMS_PORT],
-            compiled_by_type[SmugglingZone.NON_CUSTOMS_LANDING],
+            origin_zones,
+            destination_ports,
             permits_by_mmsi,
             config,
         )
@@ -884,6 +948,10 @@ def detect_smuggling(request):
             new_count += 1
         if authorized:
             authorized_count += 1
+        if suppressed_event_id:
+            suppressed_event_ids.add(suppressed_event_id)
+        if normal_port:
+            normal_port_count += 1
 
     cache.set(
         SMUGGLING_STATE_CACHE_KEY,
@@ -896,6 +964,7 @@ def detect_smuggling(request):
         reference_time,
         new_events,
         config["event_retention_minutes"],
+        suppressed_event_ids,
     )
     return _response(
         timestamp=reference_time,
@@ -905,6 +974,7 @@ def detect_smuggling(request):
         stale_count=stale,
         invalid_zone_count=invalid_zone_count,
         authorized_count=authorized_count,
+        normal_port_count=normal_port_count,
         zone_counts=zone_counts,
         config=config,
     )
@@ -1035,7 +1105,49 @@ def zone_detail(request, zone_id):
     return JsonResponse({"success": True, "result": _serialize_zone(zone)})
 
 
-def _serialize_permit(permit):
+def _guangdong_port_records():
+    return tuple(
+        zone
+        for zone in get_maritime_zones(zone_types=PORT_ZONE_TYPES)
+        if zone.region == "广东"
+    )
+
+
+def _guangdong_port_index():
+    return {zone.source_id: zone for zone in _guangdong_port_records()}
+
+
+@require_http_methods(["GET"])
+def port_collection(request):
+    try:
+        ports = _guangdong_port_records()
+    except (MaritimeZoneDataError, ValueError):
+        return _json_error("广东港口数据不可用", status=503)
+    return JsonResponse(
+        {
+            "success": True,
+            "count": len(ports),
+            "results": [
+                {
+                    "id": port.source_id,
+                    "name": port.name,
+                    "locode": port.locode,
+                    "port_type": port.zone_type,
+                }
+                for port in ports
+            ],
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+def _serialize_permit(permit, port_index=None):
+    if port_index is None:
+        try:
+            port_index = _guangdong_port_index()
+        except (MaritimeZoneDataError, ValueError):
+            port_index = {}
+    destination_port = port_index.get(permit.destination_port_id)
     return {
         "id": permit.id,
         "mmsi": permit.mmsi,
@@ -1044,11 +1156,12 @@ def _serialize_permit(permit):
         "origin_zone_name": (
             permit.origin_zone.name if permit.origin_zone else None
         ),
-        "destination_zone_id": permit.destination_zone_id,
-        "destination_zone_name": (
-            permit.destination_zone.name
-            if permit.destination_zone
-            else None
+        "destination_port_id": permit.destination_port_id,
+        "destination_port_name": (
+            destination_port.name if destination_port else None
+        ),
+        "destination_port_locode": (
+            destination_port.locode if destination_port else None
         ),
         "valid_from": permit.valid_from.isoformat(),
         "valid_until": permit.valid_until.isoformat(),
@@ -1093,24 +1206,32 @@ def _validate_permit(data, current=None, partial=False):
         elif not partial and current is None:
             raise ValueError(f"{label}不能为空")
 
-    for field, expected_type in (
-        ("origin_zone_id", SmugglingZone.HONG_KONG_ORIGIN),
-        ("destination_zone_id", SmugglingZone.NON_CUSTOMS_LANDING),
-    ):
-        if field not in data:
-            continue
-        value = data[field]
-        model_field = field[:-3] if field.endswith("_id") else field
+    if "origin_zone_id" in data:
+        value = data["origin_zone_id"]
         if value in (None, ""):
-            cleaned[model_field] = None
-            continue
-        try:
-            zone = SmugglingZone.objects.get(pk=int(value))
-        except (TypeError, ValueError, SmugglingZone.DoesNotExist):
-            raise ValueError(f"{field}对应区域不存在")
-        if zone.zone_type != expected_type:
-            raise ValueError(f"{field}区域类型不正确")
-        cleaned[model_field] = zone
+            cleaned["origin_zone"] = None
+        else:
+            try:
+                zone = SmugglingZone.objects.get(pk=int(value))
+            except (TypeError, ValueError, SmugglingZone.DoesNotExist):
+                raise ValueError("origin_zone_id对应区域不存在")
+            if zone.zone_type != SmugglingZone.HONG_KONG_ORIGIN:
+                raise ValueError("origin_zone_id区域类型不正确")
+            cleaned["origin_zone"] = zone
+
+    if "destination_port_id" in data:
+        value = data["destination_port_id"]
+        if value in (None, ""):
+            cleaned["destination_port_id"] = None
+        else:
+            try:
+                port_id = int(value)
+                port = _guangdong_port_index().get(port_id)
+            except (TypeError, ValueError, MaritimeZoneDataError):
+                port = None
+            if port is None:
+                raise ValueError("destination_port_id对应广东港口不存在")
+            cleaned["destination_port_id"] = port_id
 
     if "is_active" in data:
         if not isinstance(data["is_active"], bool):
@@ -1136,15 +1257,17 @@ def _validate_permit(data, current=None, partial=False):
 @require_http_methods(["GET", "POST"])
 def permit_collection(request):
     if request.method == "GET":
-        permits = SmugglingVoyagePermit.objects.select_related(
-            "origin_zone", "destination_zone"
-        )
+        permits = SmugglingVoyagePermit.objects.select_related("origin_zone")
+        try:
+            port_index = _guangdong_port_index()
+        except (MaritimeZoneDataError, ValueError):
+            port_index = {}
         return JsonResponse(
             {
                 "success": True,
                 "count": permits.count(),
                 "results": [
-                    _serialize_permit(permit) for permit in permits
+                    _serialize_permit(permit, port_index) for permit in permits
                 ],
             }
         )
@@ -1170,7 +1293,7 @@ def permit_collection(request):
 def permit_detail(request, permit_id):
     try:
         permit = SmugglingVoyagePermit.objects.select_related(
-            "origin_zone", "destination_zone"
+            "origin_zone"
         ).get(pk=permit_id)
     except SmugglingVoyagePermit.DoesNotExist:
         return _json_error("许可不存在", status=404)

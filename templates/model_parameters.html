@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模型参数配置 - 海域违法事件融合预警系统</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --background: #fcfcfc;
+            --surface: #11192a;
+            --surface-raised: #182238;
+            --border: rgba(116, 164, 255, 0.2);
+            --border-strong: rgba(65, 137, 255, 0.55);
+            --primary: #3182ff;
+            --primary-hover: #5a9cff;
+            --text: #f4f7ff;
+            --muted: #9aa9c3;
+            --success: #55d88a;
+            --warning: #ffc857;
+            --danger: #ff6b75;
+            --shadow: 0 18px 55px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #000000;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            min-height: 100%;
+            background: var(--background);
+        }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 12% 0%, rgba(49, 130, 255, 0.18), transparent 32rem),
+                radial-gradient(circle at 90% 15%, rgba(72, 187, 120, 0.09), transparent 28rem),
+                var(--background);
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        button,
+        a,
+        select,
+        input {
+            outline: none;
+        }
+
+        button:focus-visible,
+        a:focus-visible,
+        select:focus-visible,
+        input:focus-visible {
+            box-shadow: 0 0 0 3px rgba(49, 130, 255, 0.32);
+        }
+
+        .page-shell {
+            width: min(1440px, calc(100% - 40px));
+            margin: 0 auto;
+            padding: 28px 0 48px;
+        }
+
+        .page-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            color: #78aaff;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(1.8rem, 4vw, 2.65rem);
+            line-height: 1.15;
+            letter-spacing: -0.035em;
+        }
+
+        .page-subtitle {
+            max-width: 720px;
+            margin: 10px 0 0;
+            color: var(--muted);
+            line-height: 1.65;
+            color: #000000;
+        }
+
+        .back-link {
+            display: inline-flex;
+            flex: 0 0 auto;
+            align-items: center;
+            gap: 8px;
+            min-height: 42px;
+            padding: 0 16px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            background: rgba(17, 25, 42, 0.72);
+            text-decoration: none;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .back-link:hover {
+            border-color: var(--border-strong);
+            background: var(--surface-raised);
+        }
+
+        .control-card,
+        .editor-card {
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: rgba(17, 25, 42, 0.92);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(16px);
+        }
+
+        .control-card {
+            display: grid;
+            grid-template-columns: minmax(260px, 1.1fr) minmax(280px, 2fr) auto;
+            align-items: end;
+            gap: 20px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-weight: 650;
+        }
+
+        .model-select,
+        .parameter-input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            background: #0c1322;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .model-select {
+            min-height: 46px;
+            padding: 0 13px;
+            cursor: pointer;
+        }
+
+        .model-select:hover,
+        .parameter-input:hover,
+        .model-select:focus,
+        .parameter-input:focus {
+            border-color: var(--border-strong);
+        }
+
+        .model-description {
+            min-height: 46px;
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .configuration-state {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 0 11px;
+            border: 1px solid rgba(85, 216, 138, 0.3);
+            border-radius: 999px;
+            color: var(--success);
+            background: rgba(85, 216, 138, 0.08);
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        .configuration-state.customized {
+            border-color: rgba(255, 200, 87, 0.35);
+            color: var(--warning);
+            background: rgba(255, 200, 87, 0.08);
+        }
+
+        .editor-card {
+            overflow: hidden;
+        }
+
+        .editor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .editor-title {
+            margin: 0;
+            font-size: 1.15rem;
+        }
+
+        .editor-meta {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 0.78rem;
+        }
+
+        .reload-button {
+            border: 0;
+            color: #8db5ff;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .reload-button:hover {
+            color: #bdd3ff;
+        }
+
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            padding: 24px;
+        }
+
+        .parameter-card {
+            min-width: 0;
+            padding: 17px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: linear-gradient(145deg, rgba(24, 34, 56, 0.82), rgba(12, 19, 34, 0.85));
+        }
+
+        .parameter-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .parameter-label {
+            color: var(--text);
+            font-size: 0.92rem;
+            font-weight: 650;
+        }
+
+        .parameter-unit {
+            color: var(--warning);
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+
+        .input-wrap {
+            position: relative;
+        }
+
+        .parameter-input {
+            height: 44px;
+            padding: 0 12px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .parameter-help {
+            min-height: 20px;
+            margin: 9px 0 0;
+            color: var(--muted);
+            font-size: 0.74rem;
+            line-height: 1.45;
+        }
+
+        .parameter-default {
+            margin-top: 7px;
+            color: #7f91ae;
+            font-size: 0.72rem;
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            padding: 70px 20px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .editor-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            min-height: 80px;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            background: rgba(8, 13, 24, 0.52);
+        }
+
+        .status-message {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.84rem;
+            line-height: 1.5;
+        }
+
+        .status-message.success {
+            color: var(--success);
+        }
+
+        .status-message.error {
+            color: var(--danger);
+        }
+
+        .status-message.pending {
+            color: #8db5ff;
+        }
+
+        .actions {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 10px;
+        }
+
+        .button {
+            min-height: 42px;
+            padding: 0 18px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            font-weight: 650;
+            transition: transform 0.15s, background 0.2s, border-color 0.2s;
+        }
+
+        .button:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        .button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .button-primary {
+            background: var(--primary);
+        }
+
+        .button-primary:hover:not(:disabled) {
+            background: var(--primary-hover);
+        }
+
+        .button-danger {
+            border-color: rgba(255, 107, 117, 0.35);
+            color: #ff9da4;
+            background: rgba(255, 107, 117, 0.08);
+        }
+
+        .button-danger:hover:not(:disabled) {
+            background: rgba(255, 107, 117, 0.16);
+        }
+
+        @media (max-width: 980px) {
+            .control-card {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .state-wrap {
+                grid-column: 1 / -1;
+            }
+
+            .parameter-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 680px) {
+            .page-shell {
+                width: min(100% - 24px, 1440px);
+                padding-top: 18px;
+            }
+
+            .page-header,
+            .editor-footer {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .back-link {
+                align-self: flex-start;
+            }
+
+            .control-card,
+            .parameter-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .control-card,
+            .parameter-grid,
+            .editor-header,
+            .editor-footer {
+                padding: 16px;
+            }
+
+            .actions {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page-shell">
+        <header class="page-header">
+            <div>
+                <h1>模型参数配置</h1>
+                <p class="page-subtitle">
+                    在此统一管理违法预警模型的数值阈值。保存后的配置将在对应模型下一次分析时生效。
+                </p>
+            </div>
+            <a class="back-link" href="{% url 'index' %}" aria-label="返回监控地图">
+                <span aria-hidden="true">←</span>
+                返回监控地图
+            </a>
+        </header>
+
+        <section class="control-card" aria-label="模型选择">
+            <div>
+                <label class="form-label" for="model-parameter-feature">预警模型</label>
+                <select id="model-parameter-feature" class="model-select" disabled>
+                    <option value="">正在加载模型……</option>
+                </select>
+            </div>
+            <div>
+                <span class="form-label">模型说明</span>
+                <p id="model-parameter-description" class="model-description">正在读取配置……</p>
+            </div>
+            <div class="state-wrap">
+                <span class="form-label">配置状态</span>
+                <span id="model-parameter-state" class="configuration-state">读取中</span>
+            </div>
+        </section>
+
+        <section class="editor-card" aria-labelledby="parameter-editor-title">
+            <div class="editor-header">
+                <div>
+                    <h2 id="parameter-editor-title" class="editor-title">参数设置</h2>
+                    <p id="model-parameter-meta" class="editor-meta">参数范围由检测模型定义</p>
+                </div>
+                <button id="reload-button" class="reload-button" type="button">重新加载</button>
+            </div>
+
+            <form id="model-parameter-form">
+                <div id="model-parameter-fields" class="parameter-grid">
+                    <div class="empty-state">正在加载模型参数……</div>
+                </div>
+                <div class="editor-footer">
+                    <p id="model-parameter-status" class="status-message pending" role="status" aria-live="polite">
+                        正在读取模型参数……
+                    </p>
+                    <div class="actions">
+                        <button id="reset-button" class="button button-danger" type="button" disabled>恢复默认</button>
+                        <button id="save-button" class="button button-primary" type="submit" disabled>保存参数</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <script>
+        const MODEL_PARAMETER_COLLECTION_URL = "{% url 'detection_model_parameter_collection' %}";
+        const modelSelect = document.getElementById('model-parameter-feature');
+        const description = document.getElementById('model-parameter-description');
+        const stateBadge = document.getElementById('model-parameter-state');
+        const meta = document.getElementById('model-parameter-meta');
+        const fieldsContainer = document.getElementById('model-parameter-fields');
+        const form = document.getElementById('model-parameter-form');
+        const saveButton = document.getElementById('save-button');
+        const resetButton = document.getElementById('reset-button');
+        const reloadButton = document.getElementById('reload-button');
+        const statusMessage = document.getElementById('model-parameter-status');
+
+        let configurations = [];
+        let activeFeatureId = '';
+        let isDirty = false;
+        let isBusy = false;
+
+        function getCookie(name) {
+            const prefix = `${name}=`;
+            const item = document.cookie
+                .split(';')
+                .map(value => value.trim())
+                .find(value => value.startsWith(prefix));
+            return item ? decodeURIComponent(item.substring(prefix.length)) : '';
+        }
+
+        async function apiRequest(url, options = {}) {
+            const requestOptions = {...options};
+            requestOptions.headers = {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+                ...(options.headers || {}),
+            };
+            const response = await fetch(url, requestOptions);
+            let payload;
+            try {
+                payload = await response.json();
+            } catch (error) {
+                throw new Error(`服务器返回了无法解析的响应（HTTP ${response.status}）`);
+            }
+            if (!response.ok || payload.success === false) {
+                throw new Error(payload.message || `请求失败（HTTP ${response.status}）`);
+            }
+            return payload;
+        }
+
+        function setStatus(message, type = '') {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${type}`.trim();
+        }
+
+        function setBusy(busy) {
+            isBusy = busy;
+            const configuration = selectedConfiguration();
+            const isConfigurable = Boolean(configuration?.fields?.length);
+            modelSelect.disabled = busy || configurations.length === 0;
+            reloadButton.disabled = busy;
+            saveButton.disabled = busy || !activeFeatureId || !isConfigurable;
+            resetButton.disabled = busy || !activeFeatureId || !isConfigurable;
+        }
+
+        function selectedConfiguration() {
+            return configurations.find(item => item.feature_id === activeFeatureId) || null;
+        }
+
+        function formatTime(value) {
+            if (!value) return '尚未更新';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime())
+                ? value
+                : date.toLocaleString('zh-CN', {hour12: false});
+        }
+
+        function updateQueryString(featureId) {
+            const url = new URL(window.location.href);
+            if (featureId) url.searchParams.set('feature_id', featureId);
+            else url.searchParams.delete('feature_id');
+            window.history.replaceState(null, '', url);
+        }
+
+        function renderConfiguration(configuration) {
+            fieldsContainer.innerHTML = '';
+            if (!configuration) {
+                description.textContent = '请选择需要配置的预警模型。';
+                stateBadge.textContent = '未选择';
+                stateBadge.classList.remove('customized');
+                meta.textContent = '参数范围由检测模型定义';
+                fieldsContainer.innerHTML = '<div class="empty-state">没有可显示的模型参数</div>';
+                setBusy(false);
+                return;
+            }
+
+            description.textContent = configuration.description;
+            const isConfigurable = Boolean(configuration.fields.length);
+            stateBadge.textContent = isConfigurable
+                ? (configuration.is_customized ? '自定义参数' : '系统默认')
+                : '暂无参数';
+            stateBadge.classList.toggle(
+                'customized',
+                isConfigurable && configuration.is_customized
+            );
+            meta.textContent = isConfigurable
+                ? `${configuration.fields.length} 个可配置参数 · ${formatTime(configuration.updated_at)}`
+                : '该模型暂无可配置参数';
+
+            if (!isConfigurable) {
+                fieldsContainer.innerHTML = '<div class="empty-state">该模型暂无可配置参数</div>';
+                isDirty = false;
+                setBusy(false);
+                setStatus('该模型暂无可配置参数');
+                return;
+            }
+
+            configuration.fields.forEach(field => {
+                const card = document.createElement('div');
+                card.className = 'parameter-card';
+
+                const heading = document.createElement('div');
+                heading.className = 'parameter-heading';
+                const label = document.createElement('label');
+                label.className = 'parameter-label';
+                label.htmlFor = `model-parameter-${field.key}`;
+                label.textContent = field.label;
+                const unit = document.createElement('span');
+                unit.className = 'parameter-unit';
+                unit.textContent = field.unit || '数值';
+                heading.append(label, unit);
+
+                const input = document.createElement('input');
+                input.id = `model-parameter-${field.key}`;
+                input.className = 'parameter-input model-parameter-input';
+                input.type = 'number';
+                input.required = true;
+                input.dataset.key = field.key;
+                input.dataset.valueType = field.type;
+                input.value = configuration.parameters[field.key];
+                input.step = field.step ?? 'any';
+                if (field.min !== null) input.min = field.min;
+                if (field.max !== null) input.max = field.max;
+
+                const help = document.createElement('p');
+                help.className = 'parameter-help';
+                const range = [
+                    field.min !== null ? `最小 ${field.min}` : '',
+                    field.max !== null ? `最大 ${field.max}` : '',
+                ].filter(Boolean).join('，');
+                help.textContent = [field.help, range].filter(Boolean).join(' · ') || '请输入有效数值';
+
+                const defaultValue = document.createElement('div');
+                defaultValue.className = 'parameter-default';
+                defaultValue.textContent = `系统默认：${configuration.defaults[field.key]}`;
+
+                card.append(heading, input, help, defaultValue);
+                fieldsContainer.appendChild(card);
+            });
+
+            isDirty = false;
+            setBusy(false);
+            setStatus(
+                configuration.is_customized
+                    ? `当前正在使用自定义参数，更新于 ${formatTime(configuration.updated_at)}`
+                    : '当前正在使用系统默认参数',
+                configuration.is_customized ? 'success' : ''
+            );
+        }
+
+        function updateSelectOptions() {
+            modelSelect.innerHTML = '';
+            configurations.forEach(configuration => {
+                const option = document.createElement('option');
+                option.value = configuration.feature_id;
+                option.textContent = configuration.fields.length === 0
+                    ? `${configuration.label}`
+                    : (configuration.is_customized
+                        ? `${configuration.label}（已自定义）`
+                        : configuration.label);
+                modelSelect.appendChild(option);
+            });
+            modelSelect.value = activeFeatureId;
+        }
+
+        async function loadConfigurations(preferredFeatureId = '') {
+            if (isBusy) return;
+            setBusy(true);
+            setStatus('正在读取模型参数……', 'pending');
+            try {
+                const payload = await apiRequest(MODEL_PARAMETER_COLLECTION_URL);
+                configurations = payload.results || [];
+                const queryFeatureId = new URLSearchParams(window.location.search).get('feature_id') || '';
+                const requestedFeatureId = preferredFeatureId || queryFeatureId || activeFeatureId;
+                activeFeatureId = configurations.some(item => item.feature_id === requestedFeatureId)
+                    ? requestedFeatureId
+                    : (configurations[0]?.feature_id || '');
+                updateSelectOptions();
+                updateQueryString(activeFeatureId);
+                renderConfiguration(selectedConfiguration());
+            } catch (error) {
+                fieldsContainer.innerHTML = '<div class="empty-state">模型参数加载失败，请稍后重试</div>';
+                description.textContent = '未能读取模型配置。';
+                stateBadge.textContent = '加载失败';
+                setStatus(`模型参数加载失败：${error.message}`, 'error');
+                setBusy(false);
+            }
+        }
+
+        function collectParameters() {
+            const parameters = {};
+            for (const input of fieldsContainer.querySelectorAll('.model-parameter-input')) {
+                if (!input.reportValidity()) {
+                    input.focus();
+                    return null;
+                }
+                parameters[input.dataset.key] = input.dataset.valueType === 'integer'
+                    ? Number.parseInt(input.value, 10)
+                    : Number(input.value);
+            }
+            return parameters;
+        }
+
+        async function saveParameters() {
+            const configuration = selectedConfiguration();
+            if (!configuration || isBusy) return;
+            const parameters = collectParameters();
+            if (!parameters) return;
+
+            setBusy(true);
+            setStatus('正在保存模型参数……', 'pending');
+            try {
+                const payload = await apiRequest(
+                    `${MODEL_PARAMETER_COLLECTION_URL}${encodeURIComponent(configuration.feature_id)}/`,
+                    {method: 'PUT', body: JSON.stringify({parameters})}
+                );
+                const index = configurations.findIndex(item => item.feature_id === configuration.feature_id);
+                configurations[index] = payload.configuration;
+                updateSelectOptions();
+                renderConfiguration(payload.configuration);
+                setStatus(payload.message, 'success');
+            } catch (error) {
+                setStatus(`保存失败：${error.message}`, 'error');
+                setBusy(false);
+            }
+        }
+
+        async function resetParameters() {
+            const configuration = selectedConfiguration();
+            if (!configuration || isBusy) return;
+            if (!window.confirm(`确定将“${configuration.label}”恢复为系统默认参数吗？`)) return;
+
+            setBusy(true);
+            setStatus('正在恢复系统默认参数……', 'pending');
+            try {
+                const payload = await apiRequest(
+                    `${MODEL_PARAMETER_COLLECTION_URL}${encodeURIComponent(configuration.feature_id)}/`,
+                    {method: 'DELETE'}
+                );
+                const index = configurations.findIndex(item => item.feature_id === configuration.feature_id);
+                configurations[index] = payload.configuration;
+                updateSelectOptions();
+                renderConfiguration(payload.configuration);
+                setStatus(payload.message, 'success');
+            } catch (error) {
+                setStatus(`恢复默认失败：${error.message}`, 'error');
+                setBusy(false);
+            }
+        }
+
+        modelSelect.addEventListener('change', event => {
+            const nextFeatureId = event.target.value;
+            if (isDirty && !window.confirm('当前修改尚未保存，确定切换模型吗？')) {
+                modelSelect.value = activeFeatureId;
+                return;
+            }
+            activeFeatureId = nextFeatureId;
+            updateQueryString(activeFeatureId);
+            renderConfiguration(selectedConfiguration());
+        });
+
+        fieldsContainer.addEventListener('input', event => {
+            if (!event.target.classList.contains('model-parameter-input')) return;
+            isDirty = true;
+            setStatus('参数已修改，尚未保存', 'pending');
+        });
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            saveParameters();
+        });
+
+        resetButton.addEventListener('click', resetParameters);
+        reloadButton.addEventListener('click', () => {
+            if (isDirty && !window.confirm('当前修改尚未保存，确定重新加载吗？')) return;
+            loadConfigurations(activeFeatureId);
+        });
+
+        window.addEventListener('beforeunload', event => {
+            if (!isDirty) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+
+        loadConfigurations();
+    </script>
+</body>
+</html>

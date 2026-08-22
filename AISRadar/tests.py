@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 
 from AISData.consumers import AisConsumer
+from .anomaly_detection import build_fusion_detection_results
 from .fusion_state import build_fusion_state, clear_fusion_state
 from .inference.data import common_timestamps, prepare_window, preprocess_table
 from .inference.matching import decode_hungarian, partial_sinkhorn_scores
@@ -110,6 +111,28 @@ class FusionStateTests(SimpleTestCase):
         self.assertEqual(state["count"], 1)
         self.assertEqual(state["source_end_time"], "2026-08-02T12:00:05")
 
+    def test_fusion_state_drives_close_ais_and_forgery_detectors(self):
+        state = build_fusion_state(
+            {
+                "windows": [
+                    {
+                        "end_time": "2026-08-02T12:00:05",
+                        "matches": [],
+                        "unmatched_ais_targets": [
+                            {"id": 413000002, "x": 29.8, "y": 122.5}
+                        ],
+                        "unmatched_radar_targets": [
+                            {"id": "2-1", "x": 29.7, "y": 122.4}
+                        ],
+                    }
+                ]
+            }
+        )
+        detections = build_fusion_detection_results(state)
+
+        self.assertEqual(detections["detect-ais-off"]["count"], 1)
+        self.assertEqual(detections["detect-spoofing"]["count"], 1)
+
     @patch("AISRadar.views.get_matcher")
     def test_match_publishes_targets_for_ui(self, get_matcher):
         matcher = Mock()
@@ -136,6 +159,8 @@ class FusionStateTests(SimpleTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["fusion_state"]["ais_ids"], ["413123456"])
+        self.assertIn("detect-ais-off", response.json()["detections"])
+        self.assertIn("detect-spoofing", response.json()["detections"])
 
         state_response = self.client.get(reverse("ais_radar:fused_targets"))
         self.assertEqual(state_response.status_code, 200)

@@ -201,9 +201,13 @@ class AISRadarMatcher:
 
             matches = []
             predicted_pairs = set()
+            matched_ais_indices = set()
+            matched_radar_indices = set()
             for ais_index, radar_index, confidence in decoded:
                 ais_id = window.ais_ids[ais_index]
                 radar_id = window.radar_ids[radar_index]
+                matched_ais_indices.add(ais_index)
+                matched_radar_indices.add(radar_index)
                 predicted_pairs.add((_id_key(ais_id), _id_key(radar_id)))
                 matches.append(
                     {
@@ -215,11 +219,40 @@ class AISRadarMatcher:
                     }
                 )
 
+            ais_targets = [
+                {
+                    "id": _id_key(target_id),
+                    "x": float(window.ais_features[index, -1, 0]),
+                    "y": float(window.ais_features[index, -1, 1]),
+                }
+                for index, target_id in enumerate(window.ais_ids)
+            ]
+            radar_targets = [
+                {
+                    "id": _id_key(target_id),
+                    "x": float(window.radar_features[index, -1, 0]),
+                    "y": float(window.radar_features[index, -1, 1]),
+                }
+                for index, target_id in enumerate(window.radar_ids)
+            ]
+
             result = {
                 "start_time": window.timestamps[0].isoformat(),
                 "end_time": window.timestamps[-1].isoformat(),
                 "ais_trajectories": len(window.ais_ids),
                 "radar_trajectories": len(window.radar_ids),
+                "ais_targets": ais_targets,
+                "radar_targets": radar_targets,
+                "unmatched_ais_targets": [
+                    target
+                    for index, target in enumerate(ais_targets)
+                    if index not in matched_ais_indices
+                ],
+                "unmatched_radar_targets": [
+                    target
+                    for index, target in enumerate(radar_targets)
+                    if index not in matched_radar_indices
+                ],
                 "matches": matches,
             }
             if ground_truth:

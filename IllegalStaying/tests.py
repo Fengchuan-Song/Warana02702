@@ -13,7 +13,7 @@ from django.urls import resolve
 from AISData.detection import DETECTORS
 from AISData.views import cached_detection_result
 
-from .models import StayingBuffer
+from .models import IllegalStayingMonitorArea, StayingBuffer
 from .utils import get_forbidden_area
 from .views import (
     ILLEGAL_STAYING_EVENT_CACHE_KEY,
@@ -87,6 +87,16 @@ class IllegalStayingDetectorTests(TestCase):
     def setUp(self):
         cache.delete(ILLEGAL_STAYING_EVENT_CACHE_KEY)
         self.factory = RequestFactory()
+        IllegalStayingMonitorArea.objects.all().delete()
+        self.monitor_area = IllegalStayingMonitorArea.objects.create(
+            name="测试禁停区",
+            reason="测试水域禁止驻留",
+            min_lon=9,
+            min_lat=9,
+            max_lon=11,
+            max_lat=11,
+            is_active=True,
+        )
 
     def ship(
         self,
@@ -153,6 +163,77 @@ class IllegalStayingDetectorTests(TestCase):
 
         self.assertEqual(payload["skipped_count"], 4)
         self.assertEqual(StayingBuffer.objects.count(), 0)
+
+    def test_inactive_monitor_area_disables_detection_and_clears_history(self):
+        self.feed((0, 30, 60))
+        self.monitor_area.is_active = False
+        self.monitor_area.save()
+
+        _, payload = self.call_view([self.ship(90)])
+
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
+    def test_monitor_area_crud_and_validation(self):
+        list_response = self.client.get("/IllegalStaying/monitor-areas/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["count"], 1)
+        self.assertEqual(
+            list_response.json()["results"][0]["reason"],
+            "测试水域禁止驻留",
+        )
+
+        create_response = self.client.post(
+            "/IllegalStaying/monitor-areas/",
+            data=json.dumps(
+                {
+                    "name": "第二禁停区",
+                    "reason": "测试原因",
+                    "min_lon": 12,
+                    "min_lat": 12,
+                    "max_lon": 13,
+                    "max_lat": 13,
+                    "is_active": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()["result"]
+
+        update_response = self.client.patch(
+            f"/IllegalStaying/monitor-areas/{created['id']}/",
+            data=json.dumps({"is_active": False, "reason": "更新原因"}),
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertFalse(update_response.json()["result"]["is_active"])
+        self.assertEqual(update_response.json()["result"]["reason"], "更新原因")
+
+        delete_response = self.client.delete(
+            f"/IllegalStaying/monitor-areas/{created['id']}/"
+        )
+        self.assertEqual(delete_response.status_code, 200)
+        last_delete_response = self.client.delete(
+            f"/IllegalStaying/monitor-areas/{self.monitor_area.id}/"
+        )
+        self.assertEqual(last_delete_response.status_code, 409)
+
+        invalid_response = self.client.post(
+            "/IllegalStaying/monitor-areas/",
+            data=json.dumps(
+                {
+                    "name": "错误区域",
+                    "reason": "",
+                    "min_lon": 13,
+                    "min_lat": 12,
+                    "max_lon": 12,
+                    "max_lat": 13,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(invalid_response.status_code, 400)
 
     def test_historical_ais_time_drives_duration_and_cleanup(self):
         payload, _ = self.feed()

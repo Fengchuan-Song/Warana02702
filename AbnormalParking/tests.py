@@ -6,7 +6,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 
 from IllegalAnchored.zones import AUTHORIZED_ANCHORAGES
 
-from .models import ParkingBuffer
+from .models import ParkingBuffer, ParkingMonitorArea
 from .utils import detect_parking_events
 from .views import detectAbnormalParking
 
@@ -80,6 +80,15 @@ class AbnormalParkingDetectorTests(TestCase):
     def setUp(self):
         cache.clear()
         self.factory = RequestFactory()
+        ParkingMonitorArea.objects.all().delete()
+        self.monitor_area = ParkingMonitorArea.objects.create(
+            name="测试监控区",
+            min_lon=114.40,
+            min_lat=22.30,
+            max_lon=114.70,
+            max_lat=22.65,
+            is_active=True,
+        )
         self.start = datetime(
             2020,
             12,
@@ -219,3 +228,71 @@ class AbnormalParkingDetectorTests(TestCase):
 
         self.assertEqual(payload["skipped_count"], 1)
         self.assertEqual(payload["count"], 0)
+
+    def test_inactive_database_area_disables_monitoring(self):
+        self.monitor_area.is_active = False
+        self.monitor_area.save(update_fields=("is_active", "updated_at"))
+
+        payload = self._detect(self.start)
+
+        self.assertEqual(payload["count"], 0)
+        self.assertFalse(ParkingBuffer.objects.exists())
+
+    def test_monitor_area_crud_api(self):
+        list_response = self.client.get("/AbnormalParking/monitor-areas/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["count"], 1)
+        self.assertEqual(list_response.json()["results"][0]["name"], "测试监控区")
+
+        create_response = self.client.post(
+            "/AbnormalParking/monitor-areas/",
+            data=json.dumps(
+                {
+                    "name": "第二监控区",
+                    "min_lon": 113.60,
+                    "min_lat": 22.10,
+                    "max_lon": 113.80,
+                    "max_lat": 22.20,
+                    "is_active": True,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        area_id = create_response.json()["result"]["id"]
+
+        update_response = self.client.patch(
+            f"/AbnormalParking/monitor-areas/{area_id}/",
+            data=json.dumps({"is_active": False}),
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertFalse(update_response.json()["result"]["is_active"])
+
+        delete_response = self.client.delete(
+            f"/AbnormalParking/monitor-areas/{area_id}/"
+        )
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertFalse(ParkingMonitorArea.objects.filter(pk=area_id).exists())
+
+    def test_monitor_area_rejects_invalid_bounds_and_last_delete(self):
+        invalid_response = self.client.post(
+            "/AbnormalParking/monitor-areas/",
+            data=json.dumps(
+                {
+                    "name": "无效区域",
+                    "min_lon": 114.7,
+                    "min_lat": 22.3,
+                    "max_lon": 114.4,
+                    "max_lat": 22.6,
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+
+        delete_response = self.client.delete(
+            f"/AbnormalParking/monitor-areas/{self.monitor_area.id}/"
+        )
+        self.assertEqual(delete_response.status_code, 409)
+        self.assertTrue(ParkingMonitorArea.objects.filter(pk=self.monitor_area.id).exists())

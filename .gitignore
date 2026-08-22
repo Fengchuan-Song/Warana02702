@@ -6,3 +6,17 @@ Data/
 .runtime/
 test.py
 redme.docx
+.codex_doc_review_v2/
+.qa/
+docs/
+outputs/backups/
+outputs/guangdong_port_filter/node_modules/
+outputs/guangdong_port_filter/filter_guangdong_port_aoi.mjs
+outputs/guangdong_port_filter/Port_ANC_Terminal_polygon_Guangdong_HongKong_Macau.xlsx
+outputs/guangdong_port_filter/Port_ANC_Terminal_polygon_Guangdong_HongKong_Macau.xlsx.inspect.ndjson
+outputs/guangdong_port_filter/Port_ANC_Terminal_polygon_Guangdong.csv
+outputs/guangdong_port_filter/Port_ANC_Terminal_polygon_Guangdong.xlsx
+outputs/guangdong_port_filter/Port_ANC_Terminal_polygon_Guangdong.xlsx.inspect.ndjson
+outputs/guangdong_port_filter/preview_data.png
+outputs/guangdong_port_filter/preview_summary.png
+second_client/

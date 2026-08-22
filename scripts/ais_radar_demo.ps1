@@ -5,11 +5,17 @@ param(
     [string]$Scene = '08',
 
     [ValidateRange(0, 3600)]
-    [double]$Interval = 1,
+    [double]$Interval = 60,
 
     [bool]$Loop = $true,
 
-    [string]$BindAddress = '127.0.0.1',
+    [bool]$StartDetectors = $true,
+
+    [bool]$StartVideoDetection = $true,
+
+    [string]$CameraKey = 'harbor-01',
+
+    [string]$BindAddress = '0.0.0.0',
 
     [ValidateRange(1, 65535)]
     [int]$Port = 8000
@@ -24,6 +30,22 @@ $LogDirectory = Join-Path $RuntimeDirectory 'logs'
 $Python = 'D:\Anaconda3\envs\Predict\python.exe'
 $RedisServer = 'C:\Program Files\Redis\redis-server.exe'
 $RedisCli = 'C:\Program Files\Redis\redis-cli.exe'
+$DetectionFeatures = @(
+    'detect-CrossingBoundary',
+    'detect-abnormalStaying',
+    'detect-abnormalTransfer',
+    'detect-abnormalWandering',
+    'detect-blackList',
+    'detect-collision',
+    'detect-deviation',
+    'detect-doubleDragging',
+    'detect-highSpeedBoat',
+    'detect-illegalAnchored',
+    'detect-illegalBerthing',
+    'detect-illegalStaying',
+    'detect-lowSpeedBoat',
+    'detect-smuggling'
+)
 
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
 
@@ -79,8 +101,10 @@ function Start-ManagedProcess(
         [string]$startedProcess.Id,
         [System.Text.UTF8Encoding]::new($false)
     )
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 1000
+    $startedProcess.Refresh()
     if ($startedProcess.HasExited) {
+        Remove-Item -LiteralPath (Get-PidFile $Name) -Force -ErrorAction SilentlyContinue
         throw "[$Name] failed to start. Check log: $stderrLog"
     }
     Write-Host "[$Name] started, PID=$($startedProcess.Id)" -ForegroundColor Green
@@ -147,7 +171,14 @@ function Test-TcpPort([string]$Address, [int]$TcpPort) {
 function Show-Status {
     $redisStatus = if (Test-Redis) { 'running' } else { 'stopped' }
     Write-Host "[redis] $redisStatus"
-    foreach ($processName in @('daphne', 'ais-worker', 'ais-radar-replay')) {
+    $managedNames = @(
+        'daphne',
+        'ais-worker',
+        'ais-radar-replay',
+        'camera-stream',
+        'overload-stream'
+    ) + ($DetectionFeatures | ForEach-Object { "detector-$_" })
+    foreach ($processName in $managedNames) {
         $managedProcess = Get-ManagedProcess $processName
         if ($null -eq $managedProcess) {
             Write-Host "[$processName] not managed by this script"
@@ -164,8 +195,13 @@ if ($Action -eq 'status') {
 }
 
 if ($Action -eq 'stop') {
+    Stop-ManagedProcess 'overload-stream'
+    Stop-ManagedProcess 'camera-stream'
     Stop-ManagedProcess 'ais-radar-replay'
     Stop-ManagedProcess 'ais-worker'
+    foreach ($featureId in $DetectionFeatures) {
+        Stop-ManagedProcess "detector-$featureId"
+    }
     Stop-ManagedProcess 'daphne'
     Write-Host '[redis] left running to avoid affecting other projects.'
     exit 0
@@ -180,9 +216,21 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory 'manage.py'))) {
 
 Ensure-Redis
 
+Write-Host '[django] applying database migrations'
+& $Python 'manage.py' 'migrate' '--noinput'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Django database migration failed; no worker was started.'
+}
+
+Write-Host '[django] running one project check before starting workers'
+& $Python 'manage.py' 'check'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Django project check failed; no worker was started.'
+}
+
 $managedDaphne = Get-ManagedProcess 'daphne'
 if ($null -eq $managedDaphne -and (Test-TcpPort $BindAddress $Port)) {
-    Write-Host "[daphne] $BindAddress`:$Port is already in use; reusing the existing service." -ForegroundColor Yellow
+    throw "[daphne] $BindAddress`:$Port is occupied by a process not managed by this script. Stop it or choose another -Port."
 } else {
     Start-ManagedProcess 'daphne' $Python @(
         '-u', '-m', 'daphne',
@@ -192,8 +240,18 @@ if ($null -eq $managedDaphne -and (Test-TcpPort $BindAddress $Port)) {
     ) | Out-Null
 }
 
+if ($StartDetectors) {
+    foreach ($featureId in $DetectionFeatures) {
+        Start-ManagedProcess "detector-$featureId" $Python @(
+            '-u', 'manage.py', 'detection_worker',
+            '--detector', $featureId,
+            '--skip-checks'
+        ) | Out-Null
+    }
+}
+
 Start-ManagedProcess 'ais-worker' $Python @(
-    '-u', 'manage.py', 'ais_worker'
+    '-u', 'manage.py', 'ais_worker', '--skip-checks'
 ) | Out-Null
 
 $replayArguments = @(
@@ -203,12 +261,26 @@ $replayArguments = @(
         [System.Globalization.CultureInfo]::InvariantCulture,
         '{0}',
         $Interval
-    ))
+    )),
+    '--skip-checks'
 )
 if ($Loop) {
     $replayArguments += '--loop'
 }
 Start-ManagedProcess 'ais-radar-replay' $Python $replayArguments | Out-Null
+
+if ($StartVideoDetection) {
+    Start-ManagedProcess 'camera-stream' $Python @(
+        '-u', 'manage.py', 'camera_stream_worker',
+        '--camera-key', $CameraKey,
+        '--skip-checks'
+    ) | Out-Null
+    Start-ManagedProcess 'overload-stream' $Python @(
+        '-u', 'manage.py', 'overload_stream_worker',
+        '--camera-key', $CameraKey,
+        '--skip-checks'
+    ) | Out-Null
+}
 
 Write-Host ''
 Write-Host "All processes started: http://$BindAddress`:$Port/" -ForegroundColor Cyan

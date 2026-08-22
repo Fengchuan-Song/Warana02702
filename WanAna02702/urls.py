@@ -28,6 +28,7 @@ urlpatterns = [
     # 融合模型
     path("VISAIS/", include('VISAIS.urls')),            # 可见光-AIS数据融合
     path("AISRadar/", include('AISRadar.urls')),        # AIS-Radar数据融合
+    path("CloseAIS/", include('CloseAIS.urls')),        # 关闭AIS检测
     path("UAVVISAIS/", include('UAVVISAIS.urls')),      # 无人机段视觉-AIS数据融合
     path("VISINF/", include('VISINF.urls')),            # 可见光-红外数据融合
     path("SARAIS/", include('SARAIS.urls')),            # SAR-AIS数据融合

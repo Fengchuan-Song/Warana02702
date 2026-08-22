@@ -196,3 +196,48 @@ class CurrentTyphoonViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 502)
         self.assertFalse(response.json()["success"])
         self.assertEqual(response.json()["message"], "数据源不可用")
+
+
+class ModelParameterPageTests(SimpleTestCase):
+    def test_model_parameter_editor_is_a_standalone_page(self):
+        response = self.client.get(reverse("model_parameter_page"))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertIn('id="model-parameter-form"', content)
+        self.assertIn('id="model-parameter-fields"', content)
+        self.assertIn("/AISData/model-parameters/", content)
+        self.assertIn("method: 'PUT'", content)
+        self.assertIn("method: 'DELETE'", content)
+        self.assertIn("该模型暂无可配置参数", content)
+        self.assertIn("!isConfigurable", content)
+        self.assertNotIn("side-panel-container", content)
+
+    def test_dashboard_links_to_full_model_parameter_page(self):
+        response = self.client.get(reverse("index"))
+        content = response.content.decode("utf-8")
+
+        self.assertIn('href="/model-parameters/"', content)
+        self.assertNotIn('id="model-parameters-panel-container"', content)
+        self.assertNotIn("toggleModelParametersPanel", content)
+
+
+class ShipTrajectoryTemplateIntegrationTests(SimpleTestCase):
+    def test_detection_detail_mmsi_locates_ship_and_loads_history(self):
+        response = self.client.get(reverse("index"))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertIn("locateShipWithHistory", content)
+        self.assertIn("/AISData/ship-trajectories/", content)
+        self.assertIn("定位船舶并显示历史轨迹", content)
+        self.assertIn("showShipTrajectoryByMmsi", content)
+        self.assertIn('data-mmsi="${mmsi}"', content)
+        self.assertIn('data-end-at="${escapeHtml(endAt)}"', content)
+        self.assertIn("button.dataset.mmsi", content)
+        self.assertIn("button.dataset.endAt", content)
+        self.assertIn("parameters.set('end', endAt)", content)
+        self.assertNotIn("AMap.event.addListener(shipInfoWindow", content)
+        self.assertIn('id="violation-trajectory-status"', content)

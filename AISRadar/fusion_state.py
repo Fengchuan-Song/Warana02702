@@ -24,6 +24,8 @@ def _empty_state() -> Dict[str, Any]:
         "ais_ids": [],
         "radar_ids": [],
         "matches": [],
+        "unmatched_ais_targets": [],
+        "unmatched_radar_targets": [],
     }
 
 
@@ -41,6 +43,21 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
     windows = result.get("windows") or []
     latest_window = windows[-1] if windows else {}
     matches = []
+
+    def normalise_targets(field_name):
+        targets = []
+        for target in latest_window.get(field_name) or []:
+            target_id = _normalise_id(target.get("id"))
+            if not target_id or target_id == "None":
+                continue
+            targets.append(
+                {
+                    "id": target_id,
+                    "x": target.get("x"),
+                    "y": target.get("y"),
+                }
+            )
+        return targets
 
     for match in latest_window.get("matches") or []:
         ais_id = _normalise_id(match.get("ais_id"))
@@ -64,6 +81,8 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
         "ais_ids": sorted({item["ais_id"] for item in matches}),
         "radar_ids": sorted({item["radar_id"] for item in matches}),
         "matches": matches,
+        "unmatched_ais_targets": normalise_targets("unmatched_ais_targets"),
+        "unmatched_radar_targets": normalise_targets("unmatched_radar_targets"),
     }
 
 
