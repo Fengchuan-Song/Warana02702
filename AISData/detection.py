@@ -10,6 +10,10 @@ from django.utils.module_loading import import_string
 
 from AISData.normalization import normalise_ais_snapshot
 from AISData.model_parameters import apply_runtime_parameter_override
+from AISData.detection_source import (
+    internal_detection_cache_key,
+    is_detection_source_active,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -91,21 +95,33 @@ def get_cached_detection_results():
     return results
 
 
-def _internal_request(feature_id, ship_list):
+def _internal_request(feature_id, ship_list, detection_context=None):
     request = HttpRequest()
     request.method = "GET"
     request.path = f"/internal/detection/{feature_id}/"
     request.ais_ship_list = ship_list
+    request.ais_context = dict(detection_context or {})
     return request
 
 
-def _execute_detector(feature_id, detector, ship_list):
+def _execute_detector(
+    feature_id,
+    detector,
+    ship_list,
+    detection_context=None,
+):
     computed_at = timezone.now().isoformat()
     try:
         if isinstance(detector, str):
             detector = import_string(detector)
         with apply_runtime_parameter_override(feature_id):
-            response = detector(_internal_request(feature_id, ship_list))
+            response = detector(
+                _internal_request(
+                    feature_id,
+                    ship_list,
+                    detection_context,
+                )
+            )
         if response.status_code != 200:
             raise RuntimeError(
                 f"detector returned HTTP {response.status_code}"
@@ -134,13 +150,22 @@ def _execute_detector(feature_id, detector, ship_list):
         }
 
 
-def run_detector(feature_id, ship_list=None, on_result=None):
+def run_detector(
+    feature_id,
+    ship_list=None,
+    on_result=None,
+    detection_context=None,
+):
     """Run one detector in its dedicated worker process."""
     if feature_id not in DETECTORS:
         raise ValueError(f"Unknown detector: {feature_id}")
     if ship_list is None:
         ship_list = cache.get("latest_ais_data_raw", [])
     ship_list = normalise_ais_snapshot(ship_list)
+    context = dict(detection_context or {})
+    namespace = context.get("namespace") or "operational"
+    simulation_id = context.get("simulation_id") or None
+    source_active = is_detection_source_active(namespace, simulation_id)
 
     if not connection.in_atomic_block:
         close_old_connections()
@@ -149,27 +174,41 @@ def run_detector(feature_id, ship_list=None, on_result=None):
             feature_id,
             DETECTORS[feature_id],
             ship_list,
+            context,
         )
         cache.set(
-            detection_cache_key(feature_id),
+            internal_detection_cache_key(
+                feature_id,
+                namespace,
+                simulation_id,
+            ),
             payload,
             timeout=getattr(settings, "CACHE_TTL", 300),
         )
-        try:
-            from AISData.violation_records import persist_detection_payload
-
-            persist_detection_payload(
-                feature_id,
+        if source_active:
+            cache.set(
+                detection_cache_key(feature_id),
                 payload,
-                ais_snapshot=ship_list,
+                timeout=getattr(settings, "CACHE_TTL", 300),
             )
-        except Exception:
-            logger.exception(
-                "Could not persist violation result for %s",
-                feature_id,
-            )
-        if on_result is not None:
-            on_result(feature_id, payload)
+            try:
+                from AISData.violation_records import persist_detection_payload
+
+                persist_detection_payload(
+                    feature_id,
+                    payload,
+                    ais_snapshot=ship_list,
+                    trajectory_namespace=(
+                        namespace if namespace != "operational" else None
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Could not persist violation result for %s",
+                    feature_id,
+                )
+            if on_result is not None:
+                on_result(feature_id, payload)
         return payload
     finally:
         if not connection.in_atomic_block:

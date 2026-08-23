@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
@@ -25,6 +26,10 @@ from .detection_queue import (
     enqueue_all_detections,
     enqueue_detection,
     wait_for_detection_trigger,
+)
+from .detection_source import (
+    ACTIVE_DETECTION_SOURCE_CACHE_KEY,
+    internal_detection_cache_key,
 )
 from .views import cached_detection_result
 from .normalization import normalise_ais_name
@@ -396,12 +401,18 @@ class RealtimeConsumerSeparationTests(SimpleTestCase):
         )
 
     def test_violation_updates_use_a_dedicated_route_and_group(self):
-        from WanAna02702.routing import websocket_urlpatterns
+        from WanAna02702.routing import (
+            default_ais_consumer,
+            websocket_urlpatterns,
+        )
 
         routes = {str(route.pattern) for route in websocket_urlpatterns}
 
         self.assertIn("ws/violations/", routes)
         self.assertIn("ws/ais-predict/", routes)
+        self.assertIs(default_ais_consumer(), AisConsumer)
+        with self.settings(AIS_DEFAULT_SOURCE="predict"):
+            self.assertIs(default_ais_consumer(), PredictAisConsumer)
         self.assertEqual(PredictAisConsumer.AIS_NAMESPACE, "predict")
         self.assertEqual(ViolationConsumer.GROUP_NAME, "violation_updates")
         self.assertFalse(hasattr(AisConsumer, "send_detection_update"))
@@ -610,6 +621,7 @@ class RealtimeConsumerSeparationTests(SimpleTestCase):
 @override_settings(CACHES=TEST_CACHES, CACHE_TTL=300)
 class BackendDetectionPipelineTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.request = RequestFactory().get(
             "/AISData/detection-results/detect-test/"
         )
@@ -686,6 +698,128 @@ class BackendDetectionPipelineTests(TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(callbacks, ["detect-test"])
+
+    def test_predict_context_is_available_without_changing_result_payload(self):
+        observed_context = []
+
+        def context_detector(request):
+            observed_context.append(request.ais_context)
+            return self.successful_detector(request)
+
+        cache.set(
+            ACTIVE_DETECTION_SOURCE_CACHE_KEY,
+            "predict:simulation-1",
+            timeout=None,
+        )
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": context_detector},
+            clear=True,
+        ):
+            result = run_detector(
+                "detect-test",
+                ship_list=[{"mmsi": "123456789"}],
+                detection_context={
+                    "namespace": "predict",
+                    "simulation_id": "simulation-1",
+                },
+            )
+
+        self.assertEqual(
+            observed_context,
+            [
+                {
+                    "namespace": "predict",
+                    "simulation_id": "simulation-1",
+                }
+            ],
+        )
+        self.assertNotIn("namespace", result)
+        self.assertNotIn("simulation_id", result)
+        self.assertEqual(get_detection_result("detect-test"), result)
+
+    def test_runner_passes_predict_namespace_to_trajectory_persistence(self):
+        cache.set(
+            ACTIVE_DETECTION_SOURCE_CACHE_KEY,
+            "predict:simulation-1",
+            timeout=None,
+        )
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": self.successful_detector},
+            clear=True,
+        ):
+            with patch(
+                "AISData.violation_records.persist_detection_payload"
+            ) as persist:
+                run_detector(
+                    "detect-test",
+                    ship_list=[{"mmsi": "123456789"}],
+                    detection_context={
+                        "namespace": "predict",
+                        "simulation_id": "simulation-1",
+                    },
+                )
+
+        self.assertEqual(
+            persist.call_args.kwargs["trajectory_namespace"],
+            "predict",
+        )
+
+    def test_runner_keeps_operational_trajectory_namespace_unprefixed(self):
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": self.successful_detector},
+            clear=True,
+        ):
+            with patch(
+                "AISData.violation_records.persist_detection_payload"
+            ) as persist:
+                run_detector(
+                    "detect-test",
+                    ship_list=[{"mmsi": "123456789"}],
+                )
+
+        self.assertIsNone(
+            persist.call_args.kwargs["trajectory_namespace"]
+        )
+
+    def test_inactive_source_cannot_publish_through_compatibility_cache(self):
+        callbacks = []
+        cache.set(
+            ACTIVE_DETECTION_SOURCE_CACHE_KEY,
+            "operational",
+            timeout=None,
+        )
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": self.successful_detector},
+            clear=True,
+        ):
+            result = run_detector(
+                "detect-test",
+                ship_list=[{"mmsi": "123456789"}],
+                on_result=lambda feature_id, payload: callbacks.append(
+                    feature_id
+                ),
+                detection_context={
+                    "namespace": "predict",
+                    "simulation_id": "simulation-2",
+                },
+            )
+
+        self.assertEqual(callbacks, [])
+        self.assertIsNone(cache.get(detection_cache_key("detect-test")))
+        self.assertEqual(
+            cache.get(
+                internal_detection_cache_key(
+                    "detect-test",
+                    "predict",
+                    "simulation-2",
+                )
+            ),
+            result,
+        )
 
     def test_detector_failure_is_cached_as_its_own_result(self):
         def failing_detector(request):
@@ -999,6 +1133,40 @@ class BackendDetectionPipelineTests(TestCase):
 
         self.assertEqual(received, snapshot)
         connection.delete.assert_not_called()
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_predict_source_queues_every_model_snapshot(self, get_connection):
+        connection = get_connection.return_value
+        snapshot = [
+            {
+                "mmsi": "123456789",
+                "timestamp": "2026-07-24T08:00:00+00:00",
+            }
+        ]
+
+        with patch.dict(DETECTORS, {"detect-test": "unused"}, clear=True):
+            queued = enqueue_detection(
+                "detect-test",
+                ship_list=snapshot,
+                namespace="predict",
+                simulation_id="simulation-1",
+            )
+
+        self.assertTrue(queued)
+        connection.rpush.assert_called_once_with(
+            detection_queue_key(
+                "detect-test",
+                "predict",
+                "simulation-1",
+            ),
+            json.dumps(
+                snapshot,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        connection.ltrim.assert_called_once()
+        connection.set.assert_not_called()
 
 
 @override_settings(
@@ -1417,6 +1585,41 @@ class ViolationRecordTests(TestCase):
         self.assertEqual(len(points), 3)
         self.assertEqual(points[0].observed_at, parse_datetime("2026-08-03T03:45:00Z"))
         self.assertAlmostEqual(points[-1].longitude, 122.39999)
+
+    def test_predict_event_uses_only_predict_trajectory_history(self):
+        append_ais_history(
+            [
+                {
+                    "mmsi": "413123456",
+                    "timestamp": "2026-08-03T03:50:00Z",
+                    "lon": 121.50,
+                    "lat": 28.50,
+                }
+            ]
+        )
+        append_ais_history(
+            [
+                {
+                    "mmsi": "413123456",
+                    "timestamp": "2026-08-03T03:50:00Z",
+                    "lon": 122.35,
+                    "lat": 29.70,
+                }
+            ],
+            namespace="predict",
+        )
+
+        persist_detection_payload(
+            "detect-illegalStaying",
+            self._payload(),
+            ais_snapshot=[],
+            trajectory_namespace="predict",
+        )
+
+        points = list(ViolationAISTrajectoryPoint.objects.all())
+        self.assertEqual(len(points), 2)
+        self.assertIn(122.35, [point.longitude for point in points])
+        self.assertNotIn(121.50, [point.longitude for point in points])
 
     def test_event_trajectory_start_excludes_motion_before_episode(self):
         append_ais_history(

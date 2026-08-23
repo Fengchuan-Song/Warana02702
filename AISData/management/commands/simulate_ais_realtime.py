@@ -84,7 +84,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--enqueue-detections",
             action="store_true",
-            help="Queue existing detectors; allowed only for operational namespace.",
+            help=(
+                "Queue source-isolated detector snapshots. Predict requires "
+                "matching detection workers and an activated source."
+            ),
         )
         parser.add_argument(
             "--dry-run",
@@ -305,7 +308,15 @@ class Command(BaseCommand):
                 {"type": "send_ais_delta", "data": delta},
             )
         if options["enqueue_detections"]:
-            enqueue_all_detections(ship_list=state_update.snapshot)
+            enqueue_all_detections(
+                ship_list=state_update.snapshot,
+                namespace=options["namespace"],
+                simulation_id=(
+                    simulation_id
+                    if options["namespace"] == "predict"
+                    else None
+                ),
+            )
         return {
             "upserts": len(delta["upserts"]),
             "removes": len(delta["removes"]),
@@ -321,10 +332,6 @@ class Command(BaseCommand):
         ]:
             raise CommandError(
                 "namespace=operational requires --allow-operational-write"
-            )
-        if options["enqueue_detections"] and options["namespace"] != "operational":
-            raise CommandError(
-                "--enqueue-detections requires namespace=operational"
             )
         positive_fields = (
             "speed_factor",

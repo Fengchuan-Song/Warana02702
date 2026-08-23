@@ -33,6 +33,17 @@ ALLOWED_HOSTS.extend(
     if host.strip()
 )
 
+# Both launch profiles expose the same browser and WebSocket URLs. The
+# process-level setting selects which isolated AIS state backs /ws/ais/.
+AIS_DEFAULT_SOURCE = os.environ.get(
+    "AIS_DEFAULT_SOURCE",
+    "operational",
+).strip().lower()
+if AIS_DEFAULT_SOURCE not in {"operational", "predict"}:
+    raise ValueError(
+        "AIS_DEFAULT_SOURCE must be either operational or predict"
+    )
+
 
 # Application definition
 

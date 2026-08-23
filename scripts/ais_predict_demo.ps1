@@ -33,10 +33,14 @@ param(
 
     [switch]$KeepState,
 
+    [bool]$StartDetectors = $true,
+
+    [string]$SimulationId = '',
+
     [string]$BindAddress = '0.0.0.0',
 
     [ValidateRange(1, 65535)]
-    [int]$Port = 8001
+    [int]$Port = 8000
 )
 
 Set-StrictMode -Version Latest
@@ -48,6 +52,23 @@ $LogDirectory = Join-Path $RuntimeDirectory 'logs'
 $Python = 'D:\Anaconda3\envs\Predict\python.exe'
 $RedisServer = 'C:\Program Files\Redis\redis-server.exe'
 $RedisCli = 'C:\Program Files\Redis\redis-cli.exe'
+$SimulationIdFile = Join-Path $RuntimeDirectory 'simulation.id'
+$DetectionFeatures = @(
+    'detect-CrossingBoundary',
+    'detect-abnormalStaying',
+    'detect-abnormalTransfer',
+    'detect-abnormalWandering',
+    'detect-blackList',
+    'detect-collision',
+    'detect-deviation',
+    'detect-doubleDragging',
+    'detect-highSpeedBoat',
+    'detect-illegalAnchored',
+    'detect-illegalBerthing',
+    'detect-illegalStaying',
+    'detect-lowSpeedBoat',
+    'detect-smuggling'
+)
 
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
 
@@ -208,7 +229,10 @@ function Get-BrowserAddress {
 function Show-Status {
     $redisStatus = if (Test-Redis) { 'running' } else { 'stopped' }
     Write-Host "[redis] $redisStatus"
-    foreach ($processName in @('daphne', 'ais-simulator')) {
+    $managedNames = @('daphne', 'ais-simulator') + (
+        $DetectionFeatures | ForEach-Object { "detector-$_" }
+    )
+    foreach ($processName in $managedNames) {
         $managedProcess = Get-ManagedProcess $processName
         if ($null -eq $managedProcess) {
             Write-Host "[$processName] not managed by this script"
@@ -216,6 +240,12 @@ function Show-Status {
             Write-Host `
                 "[$processName] running, PID=$($managedProcess.Id)"
         }
+    }
+    if (Test-Path -LiteralPath $SimulationIdFile) {
+        $currentSimulationId = (
+            Get-Content -LiteralPath $SimulationIdFile -Raw
+        ).Trim()
+        Write-Host "[simulation] id=$currentSimulationId"
     }
     if (Test-TcpPort $BindAddress $Port) {
         Write-Host "[web] port $Port is accepting connections"
@@ -232,7 +262,27 @@ if ($Action -eq 'status') {
 
 if ($Action -eq 'stop') {
     Stop-ManagedProcess 'ais-simulator'
+    foreach ($featureId in $DetectionFeatures) {
+        Stop-ManagedProcess "detector-$featureId"
+    }
     Stop-ManagedProcess 'daphne'
+    if (
+        (Test-Path -LiteralPath $Python) -and
+        (Test-Path -LiteralPath (Join-Path $ProjectDirectory 'manage.py')) -and
+        (Test-Redis)
+    ) {
+        Write-Host '[detection] restoring operational AIS input'
+        & $Python 'manage.py' 'activate_detection_source' `
+            '--namespace' 'operational' `
+            '--skip-checks'
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'Could not restore the operational detection source.'
+        }
+    }
+    Remove-Item `
+        -LiteralPath $SimulationIdFile `
+        -Force `
+        -ErrorAction SilentlyContinue
     Write-Host '[redis] left running to avoid affecting other projects.'
     exit 0
 }
@@ -246,8 +296,17 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory 'manage.py'))) {
 if (-not (Test-Path -LiteralPath $AISFile -PathType Leaf)) {
     throw "AIS CSV file not found: $AISFile"
 }
+if ($SimulationId -match ':') {
+    throw "SimulationId cannot contain ':'."
+}
 
 Ensure-Redis
+
+Write-Host '[django] applying database migrations'
+& $Python 'manage.py' 'migrate' '--noinput'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Django database migration failed; no process was started.'
+}
 
 Write-Host '[django] running project check'
 & $Python 'manage.py' 'check'
@@ -261,19 +320,86 @@ if ($null -ne $managedDaphne) {
         "[daphne] already running, PID=$($managedDaphne.Id)" `
         -ForegroundColor Yellow
 } elseif (Test-TcpPort $BindAddress $Port) {
-    Write-Host `
-        "[daphne] reusing the existing service on port $Port; it is not managed by this script" `
-        -ForegroundColor Yellow
-    Write-Host `
-        '[daphne] the existing process must already include the /ws/ais-predict/ route' `
-        -ForegroundColor Yellow
+    throw (
+        "[daphne] port $Port is occupied by another service. " +
+        'Stop the other launch profile before starting Predict.'
+    )
 } else {
-    Start-ManagedProcess 'daphne' $Python @(
-        '-u', '-m', 'daphne',
-        '-b', $BindAddress,
-        '-p', [string]$Port,
-        'WanAna02702.asgi:application'
-    ) | Out-Null
+    $previousAisDefaultSource = $env:AIS_DEFAULT_SOURCE
+    try {
+        $env:AIS_DEFAULT_SOURCE = 'predict'
+        Start-ManagedProcess 'daphne' $Python @(
+            '-u', '-m', 'daphne',
+            '-b', $BindAddress,
+            '-p', [string]$Port,
+            'WanAna02702.asgi:application'
+        ) | Out-Null
+    } finally {
+        if ($null -eq $previousAisDefaultSource) {
+            Remove-Item Env:AIS_DEFAULT_SOURCE -ErrorAction SilentlyContinue
+        } else {
+            $env:AIS_DEFAULT_SOURCE = $previousAisDefaultSource
+        }
+    }
+}
+
+$existingSimulator = Get-ManagedProcess 'ais-simulator'
+if ($null -ne $existingSimulator) {
+    Write-Host `
+        "[ais-simulator] already running, PID=$($existingSimulator.Id)" `
+        -ForegroundColor Yellow
+    Show-Status
+    exit 0
+}
+
+$storedSimulationId = ''
+if (Test-Path -LiteralPath $SimulationIdFile) {
+    $storedSimulationId = (
+        Get-Content -LiteralPath $SimulationIdFile -Raw
+    ).Trim()
+}
+if (-not $SimulationId) {
+    $SimulationId = if ($storedSimulationId) {
+        $storedSimulationId
+    } else {
+        [guid]::NewGuid().ToString()
+    }
+} elseif ($storedSimulationId -and $storedSimulationId -ne $SimulationId) {
+    $runningDetector = $DetectionFeatures | ForEach-Object {
+        Get-ManagedProcess "detector-$_"
+    } | Where-Object { $null -ne $_ } | Select-Object -First 1
+    if ($null -ne $runningDetector) {
+        throw (
+            'A different simulation is still managed by this script. ' +
+            'Run stop before changing -SimulationId.'
+        )
+    }
+}
+[System.IO.File]::WriteAllText(
+    $SimulationIdFile,
+    $SimulationId,
+    [System.Text.UTF8Encoding]::new($false)
+)
+
+if ($StartDetectors) {
+    Write-Host "[detection] activating Predict source: $SimulationId"
+    & $Python 'manage.py' 'activate_detection_source' `
+        '--namespace' 'predict' `
+        '--simulation-id' $SimulationId `
+        '--force-reset' `
+        '--skip-checks'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not activate the Predict detection source.'
+    }
+    foreach ($featureId in $DetectionFeatures) {
+        Start-ManagedProcess "detector-$featureId" $Python @(
+            '-u', 'manage.py', 'detection_worker',
+            '--detector', $featureId,
+            '--namespace', 'predict',
+            '--simulation-id', $SimulationId,
+            '--skip-checks'
+        ) | Out-Null
+    }
 }
 
 $invariant = [System.Globalization.CultureInfo]::InvariantCulture
@@ -289,6 +415,7 @@ $simulatorArguments = @(
     '--batch-size', [string]$BatchSize,
     '--seed', [string]$Seed,
     '--namespace', 'predict',
+    '--simulation-id', $SimulationId,
     '--skip-checks'
 )
 if ($MaxEvents -gt 0) {
@@ -300,6 +427,9 @@ if ($NoWait) {
 if ($KeepState) {
     $simulatorArguments += '--keep-state'
 }
+if ($StartDetectors) {
+    $simulatorArguments += '--enqueue-detections'
+}
 
 Start-ManagedProcess `
     'ais-simulator' `
@@ -307,11 +437,13 @@ Start-ManagedProcess `
     $simulatorArguments | Out-Null
 
 $browserAddress = Get-BrowserAddress
-$predictUrl = "http://$browserAddress`:$Port/?ais_source=predict"
+$predictUrl = "http://$browserAddress`:$Port/"
 Write-Host ''
 Write-Host "Predict AIS simulation: $predictUrl" -ForegroundColor Cyan
 Write-Host "Source: $AISFile"
 Write-Host "Mode: $Mode; speed factor: $SpeedFactor"
+Write-Host "Simulation ID: $SimulationId"
+Write-Host "Detection models: $StartDetectors"
 Write-Host "Status: & '$PSCommandPath' status"
 Write-Host "Stop: & '$PSCommandPath' stop"
 Write-Host `

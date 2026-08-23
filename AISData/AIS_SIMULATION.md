@@ -19,23 +19,28 @@ python manage.py simulate_ais_realtime `
   --duration-minutes 60
 ```
 
-Open `/?ais_source=predict` to use `/ws/ais-predict/` instead of the operational
-AIS WebSocket.
+The frontend always connects to `/ws/ais/`. The launch profile selects whether
+that unchanged route serves operational or Predict AIS state.
 
-The dedicated PowerShell launcher starts or reuses Redis and Daphne, then
-starts only the isolated Predict simulator. It does not start `ais_worker`,
-detectors, video workers or the older AIS/Radar replay:
+The dedicated PowerShell launcher starts or reuses Redis and Daphne, activates
+an isolated Predict detection source, starts its detector workers, and then
+starts the simulator. It does not start `ais_worker`, video workers or the
+older AIS/Radar replay:
 
 ```powershell
 .\scripts\ais_predict_demo.ps1 start
 ```
 
-The launcher defaults to port `8001` so it can run beside the existing demo on
-port `8000` without restarting it. Open
-`http://127.0.0.1:8001/?ais_source=predict` after startup.
+The launcher uses port `8000`, matching the existing demo. The operational and
+Predict profiles are mutually exclusive, so stop one profile before starting
+the other. Open `http://127.0.0.1:8000/` after startup; no query parameter is
+required.
 
 Use `status` and `stop` to inspect or stop only processes managed by this
 launcher. Redis and an externally managed Daphne process are never stopped.
+Stopping the launcher restores the operational source for the unchanged
+`/ws/violations/` warning interface. Pass `-StartDetectors:$false` for an AIS
+transport-only replay.
 
 Modes:
 

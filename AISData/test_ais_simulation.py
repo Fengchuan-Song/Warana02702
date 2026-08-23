@@ -2,6 +2,7 @@ import csv
 import io
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.management import call_command
@@ -259,3 +260,37 @@ class AISSimulationTests(SimpleTestCase):
                 namespace="operational",
                 no_wait=True,
             )
+
+    @patch(
+        "AISData.management.commands.simulate_ais_realtime."
+        "enqueue_all_detections"
+    )
+    def test_predict_simulation_can_enqueue_isolated_detection_snapshots(
+        self,
+        enqueue_all,
+    ):
+        call_command(
+            "simulate_ais_realtime",
+            file=str(self._csv_path()),
+            mode="broadcast",
+            source_timezone="Asia/Shanghai",
+            no_wait=True,
+            max_ships=1,
+            duration_minutes=1,
+            batch_size=100,
+            max_events=20,
+            namespace="predict",
+            simulation_id="simulation-test",
+            enqueue_detections=True,
+            verbosity=0,
+        )
+
+        self.assertTrue(enqueue_all.called)
+        self.assertTrue(
+            all(
+                call.kwargs["namespace"] == "predict"
+                and call.kwargs["simulation_id"] == "simulation-test"
+                and isinstance(call.kwargs["ship_list"], list)
+                for call in enqueue_all.call_args_list
+            )
+        )

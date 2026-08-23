@@ -259,14 +259,23 @@ def _save_one(data, detected_at):
         return record
 
 
-def _trajectory_source_points(result, ais_snapshot, detected_at=None):
+def _trajectory_source_points(
+    result,
+    ais_snapshot,
+    detected_at=None,
+    namespace=None,
+):
     mmsis = set(_target_mmsis(result))
     if not mmsis:
         return []
 
     points = [
         (str(item["mmsi"]), item)
-        for item in get_ais_history(mmsis, end_at=detected_at)
+        for item in get_ais_history(
+            mmsis,
+            end_at=detected_at,
+            namespace=namespace,
+        )
     ]
     if isinstance(ais_snapshot, list):
         for item in ais_snapshot:
@@ -463,13 +472,21 @@ def save_trajectory_sources(record, sources, *fallback_timestamps):
     return len(points)
 
 
-def _save_trajectory(record, result, payload, ais_snapshot, detected_at):
+def _save_trajectory(
+    record,
+    result,
+    payload,
+    ais_snapshot,
+    detected_at,
+    trajectory_namespace=None,
+):
     return save_trajectory_sources(
         record,
         _trajectory_source_points(
             result,
             ais_snapshot,
             detected_at=detected_at,
+            namespace=trajectory_namespace,
         ),
         result.get("timestamp"),
         payload.get("timestamp"),
@@ -477,7 +494,12 @@ def _save_trajectory(record, result, payload, ais_snapshot, detected_at):
     )
 
 
-def persist_detection_payload(feature_id, payload, ais_snapshot=None):
+def persist_detection_payload(
+    feature_id,
+    payload,
+    ais_snapshot=None,
+    trajectory_namespace=None,
+):
     """Persist alert results without allowing database errors to stop inference."""
     if not isinstance(payload, dict) or not payload.get("success", True):
         return []
@@ -508,6 +530,7 @@ def persist_detection_payload(feature_id, payload, ais_snapshot=None):
                 payload,
                 ais_snapshot,
                 detected_at,
+                trajectory_namespace=trajectory_namespace,
             )
             saved.append(record)
     except Exception:

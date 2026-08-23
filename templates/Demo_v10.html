@@ -1499,7 +1499,7 @@
                 </div>
                 
                 <div class="option-item">
-                    <span>海上围栏越界船舶检测</span>
+                    <span>围栏越界船舶检测</span>
                     <div style="display: flex; align-items: center;">
                         <span id="detect-CrossingBoundary-count" class="detail-trigger"></span>
                         <label class="switch-control">
@@ -2341,13 +2341,8 @@
         function initWebSocket() {
             // 确保使用与当前页面匹配的协议 (ws:// 或 wss://)
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const usePredictAis = new URLSearchParams(window.location.search)
-                .get('ais_source') === 'predict';
-            const aisWebSocketPath = usePredictAis
-                ? '/ws/ais-predict/'
-                : '/ws/ais/';
             // ** 替换为您的 Django 服务器地址和端口（如果端口不同） **
-            const ws_url = `${ws_protocol}//${window.location.host}${aisWebSocketPath}`;
+            const ws_url = `${ws_protocol}//${window.location.host}/ws/ais/`;
 
             ws = new WebSocket(ws_url);
 

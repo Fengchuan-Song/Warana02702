@@ -232,15 +232,32 @@ $managedDaphne = Get-ManagedProcess 'daphne'
 if ($null -eq $managedDaphne -and (Test-TcpPort $BindAddress $Port)) {
     throw "[daphne] $BindAddress`:$Port is occupied by a process not managed by this script. Stop it or choose another -Port."
 } else {
-    Start-ManagedProcess 'daphne' $Python @(
-        '-u', '-m', 'daphne',
-        '-b', $BindAddress,
-        '-p', [string]$Port,
-        'WanAna02702.asgi:application'
-    ) | Out-Null
+    $previousAisDefaultSource = $env:AIS_DEFAULT_SOURCE
+    try {
+        $env:AIS_DEFAULT_SOURCE = 'operational'
+        Start-ManagedProcess 'daphne' $Python @(
+            '-u', '-m', 'daphne',
+            '-b', $BindAddress,
+            '-p', [string]$Port,
+            'WanAna02702.asgi:application'
+        ) | Out-Null
+    } finally {
+        if ($null -eq $previousAisDefaultSource) {
+            Remove-Item Env:AIS_DEFAULT_SOURCE -ErrorAction SilentlyContinue
+        } else {
+            $env:AIS_DEFAULT_SOURCE = $previousAisDefaultSource
+        }
+    }
 }
 
 if ($StartDetectors) {
+    Write-Host '[detection] activating operational AIS input'
+    & $Python 'manage.py' 'activate_detection_source' `
+        '--namespace' 'operational' `
+        '--skip-checks'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not activate the operational detection source.'
+    }
     foreach ($featureId in $DetectionFeatures) {
         Start-ManagedProcess "detector-$featureId" $Python @(
             '-u', 'manage.py', 'detection_worker',
