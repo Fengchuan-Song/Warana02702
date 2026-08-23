@@ -4,13 +4,14 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.core.cache import cache
 
 from AISData.detection import get_cached_detection_results
+from AISData.ais_state import load_ais_snapshot, load_ais_state_version
 from AISData.normalization import normalise_ais_snapshot
 from AISRadar.fusion_state import get_fusion_state
 
 
-def load_initial_ais_state():
+def load_initial_ais_state(namespace=None):
     """Load the latest AIS state a client may have missed."""
-    return normalise_ais_snapshot(cache.get('latest_ais_data_raw', []))
+    return normalise_ais_snapshot(load_ais_snapshot(namespace))
 
 
 def load_initial_detection_state():
@@ -46,6 +47,8 @@ def load_initial_ais_radar_state():
 class AisConsumer(AsyncWebsocketConsumer):
     # 实时 AIS 数据群组名
     AIS_GROUP_NAME = 'ais_updates'
+    AIS_NAMESPACE = None
+    INCLUDE_AIS_RADAR_REPLAY = True
     AIS_RADAR_REPLAY_AIS_CACHE_KEY = 'latest_ais_radar_replay_ais_data'
     RADAR_CACHE_KEY = 'latest_radar_data_raw'
 
@@ -65,32 +68,37 @@ class AisConsumer(AsyncWebsocketConsumer):
         ais_data = await sync_to_async(
             load_initial_ais_state,
             thread_sensitive=True,
-        )()
+        )(self.AIS_NAMESPACE)
         if ais_data:
             await self.send(text_data=json.dumps({
-                'type': 'ais_update',
+                'type': 'ais_snapshot',
                 'data': ais_data,
+                'version': await sync_to_async(
+                    load_ais_state_version,
+                    thread_sensitive=True,
+                )(self.AIS_NAMESPACE),
             }))
 
-        replay_ais_data, radar_data, fusion_state = await sync_to_async(
-            load_initial_ais_radar_state,
-            thread_sensitive=True,
-        )()
-        if replay_ais_data:
-            await self.send(text_data=json.dumps({
-                'type': 'ais_radar_replay_update',
-                'data': normalise_ais_snapshot(replay_ais_data),
-            }))
-        if radar_data:
-            await self.send(text_data=json.dumps({
-                'type': 'radar_update',
-                'data': radar_data,
-            }))
-        if fusion_state.get('updated_at'):
-            await self.send(text_data=json.dumps({
-                'type': 'ais_radar_fusion_update',
-                'data': fusion_state,
-            }))
+        if self.INCLUDE_AIS_RADAR_REPLAY:
+            replay_ais_data, radar_data, fusion_state = await sync_to_async(
+                load_initial_ais_radar_state,
+                thread_sensitive=True,
+            )()
+            if replay_ais_data:
+                await self.send(text_data=json.dumps({
+                    'type': 'ais_radar_replay_update',
+                    'data': normalise_ais_snapshot(replay_ais_data),
+                }))
+            if radar_data:
+                await self.send(text_data=json.dumps({
+                    'type': 'radar_update',
+                    'data': radar_data,
+                }))
+            if fusion_state.get('updated_at'):
+                await self.send(text_data=json.dumps({
+                    'type': 'ais_radar_fusion_update',
+                    'data': fusion_state,
+                }))
 
         print(f"WebSocket connected and joined group: {self.channel_name}")
 
@@ -105,6 +113,7 @@ class AisConsumer(AsyncWebsocketConsumer):
 
     # 3. 接收群组消息时（由后台数据生产者调用）
     async def send_ais_update(self, event):
+        """Legacy full-snapshot event retained for replay compatibility."""
         # 从事件中提取 AIS 数据
         ais_data = normalise_ais_snapshot(event['text'])
 
@@ -112,6 +121,57 @@ class AisConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'ais_update',
             'data': ais_data
+        }))
+
+    async def send_ais_delta(self, event):
+        """Push per-MMSI changes without replacing the client snapshot."""
+        payload = event.get("data") or {}
+        await self.send(text_data=json.dumps({
+            "type": "ais_delta",
+            "data": {
+                "upserts": normalise_ais_snapshot(
+                    payload.get("upserts") or []
+                ),
+                "removes": [
+                    str(value).strip()
+                    for value in payload.get("removes") or []
+                    if str(value).strip()
+                ],
+                "server_time": payload.get("server_time"),
+                "version": payload.get("version"),
+            },
+        }))
+
+    async def send_ais_snapshot(self, event):
+        """Replace client state, including simulation-run resets."""
+        await self.send(text_data=json.dumps({
+            "type": "ais_snapshot",
+            "data": normalise_ais_snapshot(event.get("data") or []),
+            "version": event.get("version"),
+        }))
+
+    async def receive(self, text_data=None, bytes_data=None):
+        """Allow an incremental client to recover after a version gap."""
+        if not text_data:
+            return
+        try:
+            payload = json.loads(text_data)
+        except (TypeError, ValueError):
+            return
+        if payload.get("type") != "ais_resync":
+            return
+        ais_data = await sync_to_async(
+            load_initial_ais_state,
+            thread_sensitive=True,
+        )(self.AIS_NAMESPACE)
+        version = await sync_to_async(
+            load_ais_state_version,
+            thread_sensitive=True,
+        )(self.AIS_NAMESPACE)
+        await self.send(text_data=json.dumps({
+            "type": "ais_snapshot",
+            "data": ais_data,
+            "version": version,
         }))
 
     async def send_radar_update(self, event):
@@ -135,9 +195,13 @@ class AisConsumer(AsyncWebsocketConsumer):
             'data': event['data'],
         }))
 
-    # 4. (可选) 接收客户端消息时 (此场景用不到)
-    # async def receive(self, text_data):
-    #     pass
+
+class PredictAisConsumer(AisConsumer):
+    """Isolated local-simulation AIS stream."""
+
+    AIS_GROUP_NAME = "ais_predict_updates"
+    AIS_NAMESPACE = "predict"
+    INCLUDE_AIS_RADAR_REPLAY = False
 
 
 class ViolationConsumer(AsyncWebsocketConsumer):

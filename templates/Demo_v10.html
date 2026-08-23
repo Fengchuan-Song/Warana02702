@@ -2104,6 +2104,8 @@
         let map = null; 
         let shipData = []; // 实时 AIS 与融合回放 AIS 合并后的地图数据
         let operationalAisData = [];
+        const operationalAisByMmsi = new Map();
+        let operationalAisVersion = null;
         let replayAisData = [];
         let operationalAisUpdatedAt = 0;
         let replayAisUpdatedAt = 0;
@@ -2283,15 +2285,55 @@
             updateMarkersAndList();
         }
 
-        function applyAisSourceSnapshot(source, rawData) {
+        function applyAisSourceSnapshot(source, rawData, version = null) {
             const snapshot = Array.isArray(rawData) ? rawData : [];
             if (source === 'ais-radar-replay') {
                 replayAisData = snapshot;
                 replayAisUpdatedAt = Date.now();
             } else {
-                operationalAisData = snapshot;
+                operationalAisByMmsi.clear();
+                snapshot.forEach(ship => {
+                    const mmsi = normalizeMmsi(ship && ship.mmsi);
+                    if (mmsi) operationalAisByMmsi.set(mmsi, ship);
+                });
+                operationalAisData = Array.from(operationalAisByMmsi.values());
                 operationalAisUpdatedAt = Date.now();
+                const parsedVersion = Number(version);
+                operationalAisVersion = Number.isInteger(parsedVersion)
+                    ? parsedVersion
+                    : null;
             }
+            refreshCombinedAisData();
+        }
+
+        function applyOperationalAisDelta(rawDelta) {
+            const delta = rawDelta && typeof rawDelta === 'object' ? rawDelta : {};
+            const version = Number(delta.version);
+            if (Number.isInteger(version)) {
+                if (
+                    operationalAisVersion === null
+                    || version > operationalAisVersion + 1
+                ) {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'ais_resync'}));
+                    }
+                    return;
+                }
+                if (version <= operationalAisVersion) return;
+            }
+            const upserts = Array.isArray(delta.upserts) ? delta.upserts : [];
+            const removes = Array.isArray(delta.removes) ? delta.removes : [];
+            upserts.forEach(ship => {
+                const mmsi = normalizeMmsi(ship && ship.mmsi);
+                if (mmsi) operationalAisByMmsi.set(mmsi, ship);
+            });
+            removes.forEach(value => {
+                const mmsi = normalizeMmsi(value);
+                if (mmsi) operationalAisByMmsi.delete(mmsi);
+            });
+            operationalAisData = Array.from(operationalAisByMmsi.values());
+            operationalAisUpdatedAt = Date.now();
+            if (Number.isInteger(version)) operationalAisVersion = version;
             refreshCombinedAisData();
         }
 
@@ -2299,8 +2341,13 @@
         function initWebSocket() {
             // 确保使用与当前页面匹配的协议 (ws:// 或 wss://)
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const usePredictAis = new URLSearchParams(window.location.search)
+                .get('ais_source') === 'predict';
+            const aisWebSocketPath = usePredictAis
+                ? '/ws/ais-predict/'
+                : '/ws/ais/';
             // ** 替换为您的 Django 服务器地址和端口（如果端口不同） **
-            const ws_url = `${ws_protocol}//${window.location.host}/ws/ais/`; 
+            const ws_url = `${ws_protocol}//${window.location.host}${aisWebSocketPath}`;
 
             ws = new WebSocket(ws_url);
 
@@ -2311,8 +2358,10 @@
             ws.onmessage = function(e) {
                 const message = JSON.parse(e.data);
                 
-                if (message.type === 'ais_update') {
-                    applyAisSourceSnapshot('ais-worker', message.data);
+                if (message.type === 'ais_snapshot' || message.type === 'ais_update') {
+                    applyAisSourceSnapshot('ais-worker', message.data, message.version);
+                } else if (message.type === 'ais_delta') {
+                    applyOperationalAisDelta(message.data);
                 } else if (message.type === 'ais_radar_replay_update') {
                     applyAisSourceSnapshot('ais-radar-replay', message.data);
                 } else if (message.type === 'radar_update') {

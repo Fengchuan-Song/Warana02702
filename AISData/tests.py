@@ -28,6 +28,15 @@ from .detection_queue import (
 )
 from .views import cached_detection_result
 from .normalization import normalise_ais_name
+from .normalization import (
+    normalise_dynamic_ais_record,
+    normalise_static_ais_record,
+)
+from .ais_state import (
+    load_file_checkpoints,
+    merge_ais_state,
+    save_file_checkpoint,
+)
 from .management.commands.ais_worker import Command
 from .maritime_zones import (
     ENCRYPTED_DATASET_PATH,
@@ -39,6 +48,7 @@ from .maritime_zones import (
 )
 from .consumers import (
     AisConsumer,
+    PredictAisConsumer,
     ViolationConsumer,
     load_initial_ais_state,
     load_initial_detection_state,
@@ -391,8 +401,93 @@ class RealtimeConsumerSeparationTests(SimpleTestCase):
         routes = {str(route.pattern) for route in websocket_urlpatterns}
 
         self.assertIn("ws/violations/", routes)
+        self.assertIn("ws/ais-predict/", routes)
+        self.assertEqual(PredictAisConsumer.AIS_NAMESPACE, "predict")
         self.assertEqual(ViolationConsumer.GROUP_NAME, "violation_updates")
         self.assertFalse(hasattr(AisConsumer, "send_detection_update"))
+
+    @override_settings(
+        CHANNEL_LAYERS={
+            "default": {
+                "BACKEND": "channels.layers.InMemoryChannelLayer",
+            }
+        }
+    )
+    async def test_ais_socket_replays_snapshot_then_accepts_delta(self):
+        from asgiref.sync import sync_to_async
+        from channels.layers import get_channel_layer
+        from channels.testing import WebsocketCommunicator
+        from django.core.cache import cache
+
+        await sync_to_async(cache.set)(
+            "latest_ais_data_raw",
+            [{"mmsi": "123456789", "name": "测试船"}],
+            timeout=300,
+        )
+        socket = WebsocketCommunicator(AisConsumer.as_asgi(), "/ws/ais/")
+        try:
+            self.assertTrue((await socket.connect())[0])
+            self.assertEqual(
+                await socket.receive_json_from(),
+                {
+                    "type": "ais_snapshot",
+                    "data": [{"mmsi": "123456789", "name": "测试船"}],
+                    "version": 0,
+                },
+            )
+            await get_channel_layer().group_send(
+                AisConsumer.AIS_GROUP_NAME,
+                {
+                    "type": "send_ais_delta",
+                    "data": {
+                        "upserts": [{"mmsi": "987654321"}],
+                        "removes": ["123456789"],
+                        "server_time": "2026-08-22T00:00:00+00:00",
+                        "version": 1,
+                    },
+                },
+            )
+            self.assertEqual(
+                await socket.receive_json_from(),
+                {
+                    "type": "ais_delta",
+                    "data": {
+                        "upserts": [
+                            {"mmsi": "987654321", "name": "未知目标"}
+                        ],
+                        "removes": ["123456789"],
+                        "server_time": "2026-08-22T00:00:00+00:00",
+                        "version": 1,
+                    },
+                },
+            )
+            await get_channel_layer().group_send(
+                AisConsumer.AIS_GROUP_NAME,
+                {
+                    "type": "send_ais_snapshot",
+                    "data": [],
+                    "version": 2,
+                },
+            )
+            self.assertEqual(
+                await socket.receive_json_from(),
+                {
+                    "type": "ais_snapshot",
+                    "data": [],
+                    "version": 2,
+                },
+            )
+            await socket.send_json_to({"type": "ais_resync"})
+            self.assertEqual(
+                await socket.receive_json_from(),
+                {
+                    "type": "ais_snapshot",
+                    "data": [{"mmsi": "123456789", "name": "测试船"}],
+                    "version": 0,
+                },
+            )
+        finally:
+            await socket.disconnect()
 
     @override_settings(
         CHANNEL_LAYERS={
@@ -904,6 +999,146 @@ class BackendDetectionPipelineTests(TestCase):
 
         self.assertEqual(received, snapshot)
         connection.delete.assert_not_called()
+
+
+@override_settings(
+    CACHES=TEST_CACHES,
+    AIS_LATEST_STATE_RETENTION_SECONDS=300,
+    AIS_STATIC_STATE_RETENTION_SECONDS=24 * 60 * 60,
+)
+class AISOperationalStateTests(SimpleTestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    @staticmethod
+    def dynamic(timestamp, mmsi="123456789", **overrides):
+        source = {
+            "timestamp": timestamp,
+            "MMSI": mmsi,
+            "msg_type": "1",
+            "longitude": "113.7",
+            "latitude": "22.4",
+            "speed": "12.5",
+            "course": "90",
+            "heading": "91",
+            "rot": "0",
+        }
+        source.update(overrides)
+        return normalise_dynamic_ais_record(source)
+
+    def test_dynamic_normalisation_maps_ais_sentinels_to_none(self):
+        item = self.dynamic(
+            "2026-08-22T00:00:00Z",
+            speed="102.3",
+            course="360",
+            heading="511",
+            rot="-128",
+        )
+
+        self.assertIsNone(item["speed"])
+        self.assertIsNone(item["course"])
+        self.assertIsNone(item["heading"])
+        self.assertIsNone(item["rot"])
+        self.assertEqual(
+            set(item["quality_flags"]),
+            {
+                "speed_unavailable",
+                "course_unavailable",
+                "heading_unavailable",
+                "rot_unavailable",
+            },
+        )
+
+    def test_static_update_enriches_position_and_older_position_is_ignored(self):
+        current = self.dynamic("2026-08-22T00:10:00Z")
+        first = merge_ais_state([current])
+        self.assertEqual(first.accepted, 1)
+
+        static = normalise_static_ais_record(
+            {
+                "timestamp": "2026-08-22T00:10:10Z",
+                "MMSI": "123456789",
+                "msg_type": "5",
+                "Name": "海试一号",
+                "IMO": "9876543",
+                "length": "88",
+            }
+        )
+        enriched = merge_ais_state([], [static])
+        self.assertEqual(enriched.upserts[0]["name"], "海试一号")
+        self.assertEqual(enriched.upserts[0]["imo"], "9876543")
+        self.assertEqual(enriched.upserts[0]["length"], 88.0)
+
+        older = self.dynamic(
+            "2026-08-22T00:09:59Z",
+            longitude="114.9",
+        )
+        ignored = merge_ais_state([older])
+        self.assertEqual(ignored.out_of_order, 1)
+        self.assertEqual(ignored.upserts, [])
+        self.assertEqual(ignored.snapshot[0]["lon"], 113.7)
+
+    def test_delta_removes_targets_outside_event_time_retention(self):
+        merge_ais_state(
+            [self.dynamic("2026-08-22T00:00:00Z", "123456789")]
+        )
+        update = merge_ais_state(
+            [self.dynamic("2026-08-22T00:10:00Z", "987654321")]
+        )
+
+        self.assertEqual(update.removes, ["123456789"])
+        self.assertEqual(
+            [item["mmsi"] for item in update.snapshot],
+            ["987654321"],
+        )
+
+    def test_duplicate_position_does_not_advance_delta_version(self):
+        item = self.dynamic("2026-08-22T00:00:00Z")
+        first = merge_ais_state([item])
+        duplicate = merge_ais_state(
+            [self.dynamic("2026-08-22T00:00:00Z")]
+        )
+
+        self.assertEqual(duplicate.duplicate, 1)
+        self.assertEqual(duplicate.upserts, [])
+        self.assertEqual(duplicate.version, first.version)
+
+    def test_worker_separates_static_and_dynamic_records(self):
+        dynamic, history, static = Command().convert_batch(
+            [
+                {
+                    "timestamp": "2026-08-22T00:00:00Z",
+                    "MMSI": "123456789",
+                    "msg_type": "1",
+                    "longitude": "113.7",
+                    "latitude": "22.4",
+                    "speed": "10",
+                    "course": "90",
+                },
+                {
+                    "timestamp": "2026-08-22T00:00:01Z",
+                    "MMSI": "123456789",
+                    "msg_type": "24",
+                    "Name": "海试一号",
+                    "ship_type": "70",
+                },
+            ]
+        )
+
+        self.assertEqual(len(dynamic), 1)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(len(static), 1)
+        self.assertEqual(static[0]["name"], "海试一号")
+
+    def test_file_checkpoint_is_shared_through_cache(self):
+        self.assertEqual(load_file_checkpoints(), {})
+        save_file_checkpoint("frame.csv", "100:200")
+        self.assertEqual(
+            load_file_checkpoints(),
+            {"frame.csv": "100:200"},
+        )
 
 
 @override_settings(

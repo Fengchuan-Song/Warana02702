@@ -15,8 +15,10 @@ LOGGER = logging.getLogger(__name__)
 HISTORY_CACHE_KEY_PREFIX = "ais:trajectory:history:"
 
 
-def _cache_key(mmsi):
-    return f"{HISTORY_CACHE_KEY_PREFIX}{mmsi}"
+def _cache_key(mmsi, namespace=None):
+    prefix = str(namespace or "").strip().strip(":")
+    base = f"{HISTORY_CACHE_KEY_PREFIX}{mmsi}"
+    return f"{prefix}:{base}" if prefix else base
 
 
 def _finite_float(value):
@@ -71,7 +73,7 @@ def _history_point(source):
     }
 
 
-def append_ais_history(sources):
+def append_ais_history(sources, namespace=None):
     """Append AIS observations while retaining a bounded source-time window."""
     grouped = defaultdict(list)
     for source in sources or []:
@@ -81,7 +83,7 @@ def append_ais_history(sources):
     if not grouped:
         return 0
 
-    keys = {_cache_key(mmsi): mmsi for mmsi in grouped}
+    keys = {_cache_key(mmsi, namespace): mmsi for mmsi in grouped}
     try:
         cached = cache.get_many(keys)
     except Exception:
@@ -171,12 +173,12 @@ def append_ais_history(sources):
     return total
 
 
-def get_ais_history(mmsis, end_at=None):
+def get_ais_history(mmsis, end_at=None, namespace=None):
     """Return cached points for the requested vessels inside the history window."""
     identifiers = sorted({str(value).strip() for value in mmsis if str(value).strip()})
     if not identifiers:
         return []
-    keys = {_cache_key(mmsi): mmsi for mmsi in identifiers}
+    keys = {_cache_key(mmsi, namespace): mmsi for mmsi in identifiers}
     try:
         cached = cache.get_many(keys)
     except Exception:
@@ -213,3 +215,15 @@ def get_ais_history(mmsis, end_at=None):
             point["mmsi"],
         ),
     )
+
+
+def clear_ais_history(mmsis, namespace=None):
+    identifiers = {
+        str(value).strip() for value in mmsis if str(value).strip()
+    }
+    if not identifiers:
+        return 0
+    cache.delete_many(
+        [_cache_key(mmsi, namespace) for mmsi in identifiers]
+    )
+    return len(identifiers)

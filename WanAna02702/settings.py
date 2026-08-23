@@ -190,6 +190,12 @@ CACHES = {
 # 设置缓存过期时间（可选，默认 5 分钟）
 CACHE_TTL = 60 * 5
 
+# Operational AIS positions are merged per MMSI.  A target is removed only
+# after source event time has advanced beyond this retention window; static
+# type 5/24 attributes are retained independently and joined onto positions.
+AIS_LATEST_STATE_RETENTION_SECONDS = 15 * 60
+AIS_STATIC_STATE_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
 # 为违法事件补存识别前的 AIS 航迹。历史按 MMSI 分开缓存，既能跨越
 # ais_worker / detection_worker 进程读取，也避免一个全局大对象反复序列化。
 AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS = 30 * 60
