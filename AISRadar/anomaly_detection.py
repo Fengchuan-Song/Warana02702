@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 from AISData.consumers import ViolationConsumer
-from AISData.detection import detection_cache_key
+from AISData.detection import annotate_new_results, detection_cache_key
 from AISData.violation_records import persist_detection_payload
 from CloseAIS.views import detect_close_ais
 from Forgery.views import detect_forgery
@@ -30,6 +30,8 @@ def publish_fusion_detection_results(fusion_state, channel_layer=None):
     timeout = getattr(settings, "CACHE_TTL", 300)
     for feature_id, payload in payloads.items():
         try:
+            previous_payload = cache.get(detection_cache_key(feature_id))
+            annotate_new_results(feature_id, payload, previous_payload)
             cache.set(detection_cache_key(feature_id), payload, timeout=timeout)
             persist_detection_payload(
                 feature_id,

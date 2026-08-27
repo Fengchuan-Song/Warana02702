@@ -12,6 +12,11 @@ from django.urls import resolve
 
 from AISData.detection import DETECTORS
 from AISData.views import cached_detection_result
+from IllegalAnchored.views import (
+    HISTORY_CACHE_KEY as ANCHOR_HISTORY_CACHE_KEY,
+    detect_illegal_anchored,
+)
+from IllegalAnchored.zones import PROHIBITED_ANCHOR_ZONES
 
 from .models import IllegalStayingMonitorArea, StayingBuffer
 from .utils import get_forbidden_area
@@ -63,18 +68,21 @@ class IllegalStayingRegistrationTests(SimpleTestCase):
         )
 
     def test_polygon_forbidden_area_is_supported(self):
+        areas = [
+            {
+                "name": "多边形禁停区",
+                "bounds": [9, 9, 11, 11],
+                "vertices": [[9, 9], [11, 9], [10, 11]],
+            }
+        ]
         area = get_forbidden_area(
             10,
             10,
-            [
-                {
-                    "name": "多边形禁停区",
-                    "vertices": [[9, 9], [11, 9], [10, 11]],
-                }
-            ],
+            areas,
         )
 
         self.assertEqual(area["name"], "多边形禁停区")
+        self.assertIsNone(get_forbidden_area(10.9, 10.9, areas))
 
 
 @override_settings(
@@ -174,6 +182,15 @@ class IllegalStayingDetectorTests(TestCase):
         self.assertEqual(payload["count"], 0)
         self.assertEqual(StayingBuffer.objects.count(), 0)
 
+    def test_database_polygon_excludes_points_only_inside_its_bounds(self):
+        self.monitor_area.vertices = [[9, 9], [11, 9], [10, 11]]
+        self.monitor_area.save(update_fields=("vertices", "updated_at"))
+
+        _, payload = self.call_view([self.ship(0, lon=10.9, lat=10.9)])
+
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(StayingBuffer.objects.count(), 0)
+
     def test_monitor_area_crud_and_validation(self):
         list_response = self.client.get("/IllegalStaying/monitor-areas/")
         self.assertEqual(list_response.status_code, 200)
@@ -193,6 +210,7 @@ class IllegalStayingDetectorTests(TestCase):
                     "min_lat": 12,
                     "max_lon": 13,
                     "max_lat": 13,
+                    "vertices": [[12, 12], [13, 12], [12, 13]],
                     "is_active": True,
                 }
             ),
@@ -200,6 +218,7 @@ class IllegalStayingDetectorTests(TestCase):
         )
         self.assertEqual(create_response.status_code, 201)
         created = create_response.json()["result"]
+        self.assertEqual(len(created["vertices"]), 3)
 
         update_response = self.client.patch(
             f"/IllegalStaying/monitor-areas/{created['id']}/",
@@ -261,7 +280,7 @@ class IllegalStayingDetectorTests(TestCase):
         self.assertEqual(payload["count"], 0)
         self.assertEqual(StayingBuffer.objects.count(), 4)
 
-    def test_leaving_zone_or_normal_port_operation_resets_history(self):
+    def test_leaving_zone_resets_and_port_behavior_does_not_alert(self):
         self.feed((0, 30, 60))
         self.call_view([self.ship(90, lon=12)])
         self.assertEqual(StayingBuffer.objects.count(), 0)
@@ -270,11 +289,74 @@ class IllegalStayingDetectorTests(TestCase):
         self.call_view(
             [self.ship(210, matched_port_name="测试港")]
         )
-        self.assertEqual(StayingBuffer.objects.count(), 0)
+        self.assertGreater(StayingBuffer.objects.count(), 0)
 
         self.feed((240, 270, 300))
         self.call_view([self.ship(330, at_dock=True)])
-        self.assertEqual(StayingBuffer.objects.count(), 0)
+        self.assertGreater(StayingBuffer.objects.count(), 0)
+
+    def test_anchoring_in_forbidden_area_emits_independent_staying_alert(self):
+        payload, _ = self.feed(nav_status=1, heading=90)
+
+        self.assertEqual(payload["count"], 1)
+        result = payload["results"][0]
+        self.assertEqual(result["behavior"], "anchoring")
+        self.assertEqual(
+            result["related_primary_feature_id"],
+            "detect-illegalAnchored",
+        )
+        self.assertIn("同时命中非法驻留", result["details"])
+
+    @override_settings(
+        ILLEGAL_ANCHORED_DETECTION={
+            "min_duration_seconds": 120,
+            "history_window_seconds": 600,
+            "max_gap_seconds": 60,
+        }
+    )
+    def test_forbidden_area_anchor_produces_two_feature_alerts(self):
+        cache.delete(ANCHOR_HISTORY_CACHE_KEY)
+        zone = PROHIBITED_ANCHOR_ZONES[0]
+        lon = sum(point[0] for point in zone["points"]) / len(zone["points"])
+        lat = sum(point[1] for point in zone["points"]) / len(zone["points"])
+        self.monitor_area.min_lon = lon - 0.01
+        self.monitor_area.max_lon = lon + 0.01
+        self.monitor_area.min_lat = lat - 0.01
+        self.monitor_area.max_lat = lat + 0.01
+        self.monitor_area.vertices = []
+        self.monitor_area.save()
+
+        staying_payload = None
+        anchor_payload = None
+        for seconds in (0, 30, 60, 90, 120):
+            ship = self.ship(
+                seconds,
+                lon=lon,
+                lat=lat,
+                nav_status=1,
+                heading=90,
+            )
+            _, staying_payload = self.call_view([ship])
+            request = self.factory.get("/internal/detection/")
+            request.ais_ship_list = [ship]
+            anchor_payload = json.loads(
+                detect_illegal_anchored(request).content
+            )
+
+        self.assertEqual(staying_payload["count"], 1)
+        self.assertEqual(anchor_payload["count"], 1)
+        self.assertEqual(
+            staying_payload["results"][0]["behavior"],
+            "anchoring",
+        )
+        self.assertEqual(
+            anchor_payload["results"][0]["behavior"],
+            "anchoring",
+        )
+        self.assertNotEqual(
+            staying_payload["results"][0]["event_id"],
+            anchor_payload["results"][0]["event_id"],
+        )
 
     def test_drift_beyond_radius_starts_a_new_episode(self):
         self.feed((0, 30, 60))

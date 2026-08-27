@@ -11,7 +11,7 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from AISData.consumers import ViolationConsumer
-from AISData.detection import detection_cache_key
+from AISData.detection import annotate_new_results, detection_cache_key
 from AISData.violation_records import persist_detection_payload
 from home.consumers import camera_stream_group_name
 from home.models import CameraConfiguration
@@ -30,6 +30,27 @@ async def receive_event_with_timeout(channel_layer, channel_name, timeout=5):
         )
     except asyncio.TimeoutError:
         return None
+
+
+def publish_overload_detection(payload, channel_layer):
+    """Annotate, cache, persist, and broadcast one overload result."""
+    cache_key = detection_cache_key(FEATURE_ID)
+    previous_payload = cache.get(cache_key)
+    annotate_new_results(FEATURE_ID, payload, previous_payload)
+    cache.set(
+        cache_key,
+        payload,
+        timeout=getattr(settings, "CACHE_TTL", 300),
+    )
+    persist_detection_payload(FEATURE_ID, payload)
+    async_to_sync(channel_layer.group_send)(
+        ViolationConsumer.GROUP_NAME,
+        {
+            "type": "send_detection_update",
+            "results": {FEATURE_ID: payload},
+        },
+    )
+    return payload
 
 
 class Command(BaseCommand):
@@ -178,19 +199,7 @@ class Command(BaseCommand):
                     confirmed=confirmed,
                     consecutive_frames=consecutive_overload_frames,
                 )
-                cache.set(
-                    detection_cache_key(FEATURE_ID),
-                    payload,
-                    timeout=getattr(settings, "CACHE_TTL", 300),
-                )
-                persist_detection_payload(FEATURE_ID, payload)
-                async_to_sync(channel_layer.group_send)(
-                    ViolationConsumer.GROUP_NAME,
-                    {
-                        "type": "send_detection_update",
-                        "results": {FEATURE_ID: payload},
-                    },
-                )
+                publish_overload_detection(payload, channel_layer)
                 inference_count += 1
                 self.stdout.write(
                     f"{camera_key}: {inference.reason}; "

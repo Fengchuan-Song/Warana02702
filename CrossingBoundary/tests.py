@@ -308,6 +308,47 @@ class CrossingBoundaryDetectionTests(TestCase):
 
         self.assertEqual(payload["count"], 0)
 
+    def test_rule_changed_to_enter_while_inside_does_not_emit_exit(self):
+        self.fence.crossing_mode = "both"
+        self.fence.save()
+        self.call_detector([self.ship(113.67, 22.40)])
+        _, entered = self.call_detector(
+            [self.ship(113.69, 22.40, seconds=30)]
+        )
+        self.assertEqual(entered["new_count"], 1)
+
+        self.fence.crossing_mode = "enter"
+        self.fence.save()
+        _, exited = self.call_detector(
+            [self.ship(113.71, 22.40, seconds=60)]
+        )
+
+        self.assertEqual(exited["new_count"], 0)
+        self.assertTrue(
+            all(
+                result["crossing_direction"] != "exit"
+                for result in exited["results"]
+            )
+        )
+
+    def test_incompatible_retained_event_is_removed_after_rule_change(self):
+        self.fence.crossing_mode = "both"
+        self.fence.save()
+        self.call_detector([self.ship(113.69, 22.40)])
+        _, exited = self.call_detector(
+            [self.ship(113.71, 22.40, seconds=30)]
+        )
+        self.assertEqual(exited["results"][0]["crossing_direction"], "exit")
+
+        self.fence.crossing_mode = "enter"
+        self.fence.save()
+        _, after_change = self.call_detector(
+            [self.ship(113.72, 22.40, seconds=60)]
+        )
+
+        self.assertEqual(after_change["count"], 0)
+        self.assertEqual(after_change["new_count"], 0)
+
     def test_exit_mode_alerts_only_when_ship_leaves(self):
         self.fence.crossing_mode = "exit"
         self.fence.save()

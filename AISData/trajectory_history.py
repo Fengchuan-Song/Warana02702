@@ -29,6 +29,14 @@ def _finite_float(value):
     return number if math.isfinite(number) else None
 
 
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "是"}
+
+
 def _aware_datetime(value):
     if isinstance(value, str):
         value = parse_datetime(value)
@@ -69,6 +77,16 @@ def _history_point(source):
         "lat": latitude,
         "speed": _finite_float(source.get("speed", source.get("sog"))),
         "course": _finite_float(source.get("course", source.get("cog"))),
+        "heading": _finite_float(source.get("heading")),
+        "nav_status": _finite_float(
+            source.get("nav_status", source.get("navigation_status"))
+        ),
+        "at_dock": _as_bool(source.get("at_dock", False)),
+        "matched_port_name": str(
+            source.get("matched_port_name")
+            or source.get("matchedPortName")
+            or ""
+        ).strip(),
         "name": str(source.get("name") or "").strip(),
     }
 
@@ -96,8 +114,12 @@ def append_ais_history(sources, namespace=None):
             int(
                 getattr(
                     settings,
-                    "AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS",
-                    30 * 60,
+                    "AIS_TRAJECTORY_HISTORY_RETENTION_SECONDS",
+                    getattr(
+                        settings,
+                        "AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS",
+                        30 * 60,
+                    ),
                 )
             ),
         )
@@ -173,7 +195,7 @@ def append_ais_history(sources, namespace=None):
     return total
 
 
-def get_ais_history(mmsis, end_at=None, namespace=None):
+def get_ais_history(mmsis, end_at=None, namespace=None, window_seconds=None):
     """Return cached points for the requested vessels inside the history window."""
     identifiers = sorted({str(value).strip() for value in mmsis if str(value).strip()})
     if not identifiers:
@@ -190,7 +212,9 @@ def get_ais_history(mmsis, end_at=None, namespace=None):
         seconds=max(
             1,
             int(
-                getattr(
+                window_seconds
+                if window_seconds is not None
+                else getattr(
                     settings,
                     "AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS",
                     30 * 60,

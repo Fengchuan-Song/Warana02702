@@ -15,6 +15,10 @@ from AISData.ais_simulation import (
     load_ais_csv,
 )
 from AISData.ais_state import clear_ais_state, merge_ais_state
+from AISData.behavior_recognition import (
+    clear_behavior_results,
+    update_behavior_results,
+)
 from AISData.consumers import AisConsumer, PredictAisConsumer
 from AISData.detection_queue import enqueue_all_detections
 from AISData.trajectory_history import append_ais_history, clear_ais_history
@@ -23,11 +27,16 @@ from AISData.trajectory_history import append_ais_history, clear_ais_history
 class Command(BaseCommand):
     help = (
         "Simulate observed, nominal broadcast, or imperfectly received AIS "
-        "from a historical CSV. The default predict namespace is isolated."
+        "from a historical CSV or a directory of CSV files. The default "
+        "predict namespace is isolated."
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--file", required=True, help="Source AIS CSV path.")
+        parser.add_argument(
+            "--file",
+            required=True,
+            help="Source AIS CSV path or directory (searched recursively).",
+        )
         parser.add_argument(
             "--mode",
             choices=("observed", "broadcast", "received"),
@@ -137,6 +146,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 "AIS simulation loaded: "
                 f"mode={config.mode}, ships={len(loaded.tracks)}, "
+                f"files={len(loaded.source_files)}, "
                 f"source_rows={loaded.source_rows}, "
                 f"invalid_rows={loaded.invalid_rows}, "
                 f"namespace={options['namespace']}, id={simulation_id}"
@@ -157,6 +167,15 @@ class Command(BaseCommand):
                 preserve_version=True,
             )
             clear_ais_history(loaded.selected_mmsis, namespace)
+            clear_behavior_results(
+                loaded.selected_mmsis,
+                namespace=options["namespace"],
+                simulation_id=(
+                    simulation_id
+                    if options["namespace"] == "predict"
+                    else None
+                ),
+            )
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
@@ -296,6 +315,15 @@ class Command(BaseCommand):
             }
 
         append_ais_history(dynamic, namespace=namespace)
+        update_behavior_results(
+            dynamic,
+            namespace=options["namespace"],
+            simulation_id=(
+                simulation_id
+                if options["namespace"] == "predict"
+                else None
+            ),
+        )
         state_update = merge_ais_state(
             dynamic_updates=dynamic,
             static_updates=static,
@@ -310,6 +338,7 @@ class Command(BaseCommand):
         if options["enqueue_detections"]:
             enqueue_all_detections(
                 ship_list=state_update.snapshot,
+                incremental_ship_list=state_update.accepted_dynamic,
                 namespace=options["namespace"],
                 simulation_id=(
                     simulation_id

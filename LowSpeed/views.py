@@ -170,6 +170,8 @@ def _load_trajectories(mmsis, start_time, end_time):
         .order_by("mmsi", "timestamp")
         .values(
             "mmsi",
+            "longitude",
+            "latitude",
             "speed",
             "speed_limit",
             "zone_name",
@@ -224,45 +226,71 @@ def detect_low_speed(request):
         return _empty_response()
 
     config = get_low_speed_config()
-    ships_by_mmsi = {}
+    ships_by_key = {}
     skipped_count = 0
     for ship_info in ship_list:
         ship = _normalise_ship(ship_info, config)
         if ship is None:
             skipped_count += 1
             continue
-        previous = ships_by_mmsi.get(ship["mmsi"])
-        if previous is None or ship["timestamp"] >= previous["timestamp"]:
-            ships_by_mmsi[ship["mmsi"]] = ship
-    if not ships_by_mmsi:
+        ships_by_key[(ship["mmsi"], ship["timestamp"])] = ship
+    if not ships_by_key:
         return _empty_response(skipped_count=skipped_count)
 
+    grouped_ships = defaultdict(list)
+    for ship in sorted(
+        ships_by_key.values(),
+        key=lambda item: (item["timestamp"], item["mmsi"]),
+    ):
+        grouped_ships[ship["mmsi"]].append(ship)
+
     reference_time = max(
-        ship["timestamp"] for ship in ships_by_mmsi.values()
+        points[-1]["timestamp"] for points in grouped_ships.values()
     )
     candidates = []
-    reset_mmsis = []
+    points_to_store = []
+    reset_mmsis = set()
     stale_count = 0
     unmonitored_count = 0
-    for ship in ships_by_mmsi.values():
-        age_seconds = (reference_time - ship["timestamp"]).total_seconds()
+    for mmsi, points in grouped_ships.items():
+        latest = points[-1]
+        age_seconds = (reference_time - latest["timestamp"]).total_seconds()
         if age_seconds > config["max_position_age_seconds"]:
             stale_count += 1
-            reset_mmsis.append(ship["mmsi"])
+            reset_mmsis.add(mmsi)
             continue
-        rule = get_speed_rule(ship["lon"], ship["lat"], config)
-        if rule is None:
+
+        active_tail = []
+        previous_rule = None
+        for ship in points:
+            rule = get_speed_rule(ship["lon"], ship["lat"], config)
+            is_candidate = (
+                rule is not None
+                and _is_underway_candidate(ship, config)
+                and ship["speed"] < rule["threshold"]
+            )
+            if not is_candidate:
+                active_tail = []
+                previous_rule = None
+                reset_mmsis.add(mmsi)
+                continue
+            ship["rule"] = rule
+            rule_key = (rule["name"], rule["threshold"])
+            if previous_rule is not None and rule_key != previous_rule:
+                reset_mmsis.add(mmsi)
+            previous_rule = rule_key
+            active_tail.append(ship)
+
+        latest_rule = get_speed_rule(
+            latest["lon"], latest["lat"], config
+        )
+        if latest_rule is None:
             unmonitored_count += 1
-            reset_mmsis.append(ship["mmsi"])
+        if not active_tail or active_tail[-1] is not latest:
+            reset_mmsis.add(mmsi)
             continue
-        if (
-            not _is_underway_candidate(ship, config)
-            or ship["speed"] >= rule["threshold"]
-        ):
-            reset_mmsis.append(ship["mmsi"])
-            continue
-        ship["rule"] = rule
-        candidates.append(ship)
+        points_to_store.extend(active_tail)
+        candidates.append(latest)
 
     retention_start = reference_time - timedelta(
         minutes=config["retention_window_minutes"]
@@ -274,12 +302,14 @@ def detect_low_speed(request):
     LowSpeedPoint.objects.filter(timestamp__gt=future_limit).delete()
     if reset_mmsis:
         LowSpeedPoint.objects.filter(mmsi__in=reset_mmsis).delete()
-    _upsert_points(candidates)
+    _upsert_points(points_to_store)
 
     previous_events = _previous_events(
         reference_time,
         config["event_retention_minutes"],
     )
+    for mmsi in reset_mmsis:
+        previous_events.pop(mmsi, None)
     analysis_start = reference_time - timedelta(
         minutes=config["analysis_window_minutes"]
     )
@@ -289,8 +319,23 @@ def detect_low_speed(request):
         reference_time,
     )
 
+    processed_mmsis = set(grouped_ships)
     results = []
     active_events = {}
+    for mmsi, event in previous_events.items():
+        last_seen = _parse_timestamp(event.get("last_seen"))
+        retained_result = event.get("result")
+        if (
+            mmsi in processed_mmsis
+            or last_seen is None
+            or (reference_time - last_seen).total_seconds()
+            > config["maximum_gap_seconds"]
+            or not isinstance(retained_result, dict)
+        ):
+            continue
+        retained_result = {**retained_result, "is_new": False}
+        active_events[mmsi] = {**event, "result": retained_result}
+        results.append(retained_result)
     for ship in candidates:
         points = [
             point
@@ -338,8 +383,7 @@ def detect_low_speed(request):
             f"低于{ship['rule']['threshold']:.2f}节最低航速，"
             f"已持续{duration_seconds / 60:.1f}分钟。"
         )
-        results.append(
-            {
+        result = {
                 "mmsi": ship["mmsi"],
                 "name": ship["name"],
                 "location": [ship["lon"], ship["lat"]],
@@ -364,12 +408,13 @@ def detect_low_speed(request):
                 "details": details,
                 "detail": details,
             }
-        )
+        results.append(result)
         active_events[ship["mmsi"]] = {
             "event_id": event_id,
             "started_at": started_at,
             "zone_name": ship["rule"]["name"],
             "last_seen": ship["timestamp"].isoformat(),
+            "result": result,
         }
 
     cache.set(

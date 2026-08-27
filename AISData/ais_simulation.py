@@ -86,6 +86,35 @@ class LoadedAISData:
     selected_mmsis: tuple
     source_rows: int
     invalid_rows: int
+    source_files: tuple = ()
+
+
+def discover_ais_csv_paths(path):
+    """Resolve one CSV or every nested CSV below a replay directory."""
+    source_path = Path(path)
+    if source_path.is_file():
+        if source_path.suffix.lower() != ".csv":
+            raise ValueError(f"AIS source file is not CSV: {source_path}")
+        return (source_path,)
+    if not source_path.exists():
+        raise FileNotFoundError(f"AIS source does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise ValueError(f"AIS source is not a file or directory: {source_path}")
+    csv_paths = tuple(
+        sorted(
+            (
+                candidate
+                for candidate in source_path.rglob("*")
+                if candidate.is_file() and candidate.suffix.lower() == ".csv"
+            ),
+            key=lambda candidate: candidate.relative_to(source_path)
+            .as_posix()
+            .casefold(),
+        )
+    )
+    if not csv_paths:
+        raise ValueError(f"AIS source directory contains no CSV files: {source_path}")
+    return csv_paths
 
 
 def _aware_timestamp(value, source_timezone="UTC"):
@@ -122,50 +151,49 @@ def load_ais_csv(
     source_timezone="UTC",
 ):
     """Load and time-bound dynamic tracks plus type 5/24 static records."""
-    csv_path = Path(path)
-    if not csv_path.is_file():
-        raise FileNotFoundError(f"AIS CSV does not exist: {csv_path}")
+    csv_paths = discover_ais_csv_paths(path)
     requested = {str(value).strip() for value in (mmsis or []) if str(value).strip()}
     selected = set()
     tracks = {}
     static_records = []
     source_rows = invalid_rows = 0
 
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as source_file:
-        reader = csv.DictReader(source_file)
-        if not reader.fieldnames:
-            raise ValueError("AIS CSV has no header")
-        for row in reader:
-            source_rows += 1
-            prepared = _prepare_source_row(row, source_timezone)
-            raw_mmsi = prepared.get("MMSI", prepared.get("mmsi", ""))
-            mmsi = str(raw_mmsi or "").strip()
-            if len(mmsi) != 9 or not mmsi.isdigit():
-                invalid_rows += 1
-                continue
-            if requested and mmsi not in requested:
-                continue
-            if mmsi not in selected:
-                if not requested and len(selected) >= max(1, int(max_ships)):
-                    continue
-                selected.add(mmsi)
-
-            kind = ais_record_kind(prepared)
-            if kind == "static":
-                item = normalise_static_ais_record(prepared)
-                if item is not None:
-                    static_records.append(item)
-                else:
+    for csv_path in csv_paths:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as source_file:
+            reader = csv.DictReader(source_file)
+            if not reader.fieldnames:
+                raise ValueError(f"AIS CSV has no header: {csv_path}")
+            for row in reader:
+                source_rows += 1
+                prepared = _prepare_source_row(row, source_timezone)
+                raw_mmsi = prepared.get("MMSI", prepared.get("mmsi", ""))
+                mmsi = str(raw_mmsi or "").strip()
+                if len(mmsi) != 9 or not mmsi.isdigit():
                     invalid_rows += 1
-                continue
-            if kind != "dynamic":
-                invalid_rows += 1
-                continue
-            item = normalise_dynamic_ais_record(prepared)
-            if item is None:
-                invalid_rows += 1
-                continue
-            tracks.setdefault(item["mmsi"], []).append(item)
+                    continue
+                if requested and mmsi not in requested:
+                    continue
+                if mmsi not in selected:
+                    if not requested and len(selected) >= max(1, int(max_ships)):
+                        continue
+                    selected.add(mmsi)
+
+                kind = ais_record_kind(prepared)
+                if kind == "static":
+                    item = normalise_static_ais_record(prepared)
+                    if item is not None:
+                        static_records.append(item)
+                    else:
+                        invalid_rows += 1
+                    continue
+                if kind != "dynamic":
+                    invalid_rows += 1
+                    continue
+                item = normalise_dynamic_ais_record(prepared)
+                if item is None:
+                    invalid_rows += 1
+                    continue
+                tracks.setdefault(item["mmsi"], []).append(item)
 
     for mmsi, points in list(tracks.items()):
         by_timestamp = {}
@@ -215,6 +243,7 @@ def load_ais_csv(
         selected_mmsis=tuple(sorted(tracks)),
         source_rows=source_rows,
         invalid_rows=invalid_rows,
+        source_files=tuple(str(csv_path) for csv_path in csv_paths),
     )
 
 

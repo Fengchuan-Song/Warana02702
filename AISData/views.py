@@ -25,6 +25,7 @@ from .model_parameters import (
     serialize_configuration,
     validate_parameters,
 )
+from .detection_source import get_active_detection_source
 from .maritime_zones import (
     MaritimeZoneDataError,
     SUPPORTED_ZONE_TYPES,
@@ -80,7 +81,7 @@ def detection_model_parameter_collection(request):
 def detection_model_parameter_detail(request, feature_id):
     if feature_id not in MODEL_PARAMETER_SCHEMAS:
         return _model_parameter_error(
-            "该模型没有可配置的数值参数",
+            "该模型没有可配置参数",
             status=404,
         )
 
@@ -229,8 +230,19 @@ def _serialize_violation_record(record, include_trajectory=False):
     return data
 
 
+def _active_violation_scope():
+    source_id = get_active_detection_source()
+    if source_id == "operational":
+        return "operational", ""
+    namespace, simulation_id = source_id.split(":", 1)
+    return namespace, simulation_id
+
+
 @require_GET
 def violation_record_list(request):
+    # This endpoint backs the historical violation-record window. Keep source
+    # metadata for persistence isolation, but do not hide records from earlier
+    # operational runs or simulation batches.
     records = ViolationEventRecord.objects.all()
     feature_id = request.GET.get("feature_id", "").strip()
     target = request.GET.get("target", "").strip()
@@ -339,43 +351,78 @@ def ship_trajectory(request, mmsi=None):
             json_dumps_params={"ensure_ascii": False},
         )
 
-    try:
-        start = _filter_datetime(request.GET.get("start"))
-        end_value = request.GET.get("end")
-        end = (
-            _filter_datetime(end_value, end_of_day=True)
-            if end_value
-            else timezone.now()
-        )
-
-        trajectory_time_window = timedelta(hours=5)
-        if start is None:
-            start = end - trajectory_time_window
-    except ValueError as exc:
+    feature_id = request.GET.get("feature_id", "").strip()
+    prediction_id = request.GET.get("prediction_id", "").strip()
+    event_id = request.GET.get("event_id", "").strip()
+    if (
+        len(feature_id) > 64
+        or len(prediction_id) > 64
+        or len(event_id) > 512
+    ):
         return JsonResponse(
-            {"success": False, "message": str(exc)},
-            status=400,
-            json_dumps_params={"ensure_ascii": False},
-        )
-    if start is not None and end is not None and start >= end:
-        return JsonResponse(
-            {"success": False, "message": "start 必须早于 end"},
+            {"success": False, "message": "轨迹筛选参数过长"},
             status=400,
             json_dumps_params={"ensure_ascii": False},
         )
 
-    if end - start > trajectory_time_window:
-        return JsonResponse(
-            {"success": False, "message": "轨迹查询时间范围不能超过5小时"},
-            status=400,
-            json_dumps_params={"ensure_ascii": False},
-        )
+    # A prediction id identifies one persisted warning lifecycle. Its trajectory
+    # may legitimately continue after first_detected_at while the behaviour is
+    # active, so do not cut it at the timestamp carried by a retained alert.
+    event_specific = bool(prediction_id or event_id)
+    start = end = None
+    if not event_specific:
+        try:
+            start = _filter_datetime(request.GET.get("start"))
+            end_value = request.GET.get("end")
+            end = (
+                _filter_datetime(end_value, end_of_day=True)
+                if end_value
+                else timezone.now()
+            )
 
-    points = ViolationAISTrajectoryPoint.objects.filter(mmsi=mmsi)
-    if start is not None:
-        points = points.filter(observed_at__gte=start)
-    if end is not None:
-        points = points.filter(observed_at__lt=end)
+            trajectory_time_window = timedelta(hours=5)
+            if start is None:
+                start = end - trajectory_time_window
+        except ValueError as exc:
+            return JsonResponse(
+                {"success": False, "message": str(exc)},
+                status=400,
+                json_dumps_params={"ensure_ascii": False},
+            )
+        if start is not None and end is not None and start >= end:
+            return JsonResponse(
+                {"success": False, "message": "start 必须早于 end"},
+                status=400,
+                json_dumps_params={"ensure_ascii": False},
+            )
+
+        if end - start > trajectory_time_window:
+            return JsonResponse(
+                {"success": False, "message": "轨迹查询时间范围不能超过5小时"},
+                status=400,
+                json_dumps_params={"ensure_ascii": False},
+            )
+
+    namespace, simulation_id = _active_violation_scope()
+    points = ViolationAISTrajectoryPoint.objects.filter(
+        mmsi=mmsi,
+        event__source_namespace=namespace,
+        event__simulation_id=simulation_id,
+    )
+    if feature_id:
+        points = points.filter(event__feature_id=feature_id)
+    if prediction_id:
+        points = points.filter(
+            event__raw_data__prediction_id=prediction_id
+        )
+    elif event_id:
+        # Backward-compatible lookup for historical records.
+        points = points.filter(event__raw_data__event_id=event_id)
+    else:
+        if start is not None:
+            points = points.filter(observed_at__gte=start)
+        if end is not None:
+            points = points.filter(observed_at__lte=end)
 
     # A single AIS observation may be attached to several violation events.
     # Return it only once when querying the vessel's combined history.
@@ -422,6 +469,10 @@ def ship_trajectory(request, mmsi=None):
             "success": True,
             "mmsi": mmsi,
             "source": "violation_event_trajectory",
+            "query_scope": "event" if event_specific else "ship",
+            "feature_id": feature_id or None,
+            "prediction_id": prediction_id or None,
+            "event_id": event_id or None,
             "start": start.isoformat() if start else None,
             "end": end.isoformat() if end else None,
             "count": page.paginator.count,

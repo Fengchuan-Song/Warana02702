@@ -251,6 +251,35 @@ class DeviationDetectorTests(TestCase):
         self.assertGreater(result["route_distance_metres"], 2000)
         self.assertTrue(result["is_new"])
 
+    def test_one_incremental_batch_preserves_route_departure_points(self):
+        ships = [
+            self.ship(seconds, lon=lon, lat=lat)
+            for seconds, lon, lat in (
+                self.on_route_points() + self.deviating_points()
+            )
+        ]
+
+        _, payload = self.call_view(ships)
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 60)
+        self.assertEqual(TrajectoryPoint.objects.count(), len(ships))
+
+    def test_unmodified_active_vessel_is_retained_until_incremental_gap(self):
+        self.feed(self.on_route_points() + self.deviating_points())
+
+        _, retained = self.call_view(
+            [self.ship(210, mmsi="987654321")]
+        )
+        _, expired = self.call_view(
+            [self.ship(240, mmsi="987654321")]
+        )
+
+        self.assertEqual(retained["count"], 1)
+        self.assertEqual(retained["results"][0]["mmsi"], "123456789")
+        self.assertFalse(retained["results"][0]["is_new"])
+        self.assertEqual(expired["count"], 0)
+
     def test_repeated_frame_keeps_same_event(self):
         first, latest = self.feed(
             self.on_route_points() + self.deviating_points()

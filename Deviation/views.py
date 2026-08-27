@@ -306,44 +306,64 @@ def detect_deviation(request):
         )
 
     config = get_deviation_config()
-    ships_by_mmsi = {}
+    ships_by_key = {}
     skipped_count = 0
     for ship_info in ship_list:
         ship = _normalise_ship(ship_info, config)
         if ship is None:
             skipped_count += 1
             continue
-        previous = ships_by_mmsi.get(ship["mmsi"])
-        if previous is None or ship["timestamp"] >= previous["timestamp"]:
-            ships_by_mmsi[ship["mmsi"]] = ship
-    if not ships_by_mmsi:
+        ships_by_key[(ship["mmsi"], ship["timestamp"])] = ship
+    if not ships_by_key:
         return _empty_response(skipped_count=skipped_count)
 
+    grouped_ships = defaultdict(list)
+    for ship in sorted(
+        ships_by_key.values(),
+        key=lambda item: (item["timestamp"], item["mmsi"]),
+    ):
+        grouped_ships[ship["mmsi"]].append(ship)
+
     reference_time = max(
-        ship["timestamp"] for ship in ships_by_mmsi.values()
+        points[-1]["timestamp"] for points in grouped_ships.values()
     )
     candidates = []
-    reset_mmsis = []
+    points_to_store = []
+    reset_mmsis = set()
     stale_count = 0
     unmonitored_count = 0
-    for ship in ships_by_mmsi.values():
-        age = (reference_time - ship["timestamp"]).total_seconds()
+    for mmsi, points in grouped_ships.items():
+        latest = points[-1]
+        age = (reference_time - latest["timestamp"]).total_seconds()
         if age > config["max_position_age_seconds"]:
             stale_count += 1
-            reset_mmsis.append(ship["mmsi"])
+            reset_mmsis.add(mmsi)
             continue
+
+        active_tail = []
+        for ship in points:
+            in_coverage = route_index.contains(
+                ship["lon"],
+                ship["lat"],
+                config["coverage_margin_metres"],
+            )
+            if not in_coverage or not _is_moving_candidate(ship, config):
+                active_tail = []
+                reset_mmsis.add(mmsi)
+                continue
+            active_tail.append(ship)
+
         if not route_index.contains(
-            ship["lon"],
-            ship["lat"],
+            latest["lon"],
+            latest["lat"],
             config["coverage_margin_metres"],
         ):
             unmonitored_count += 1
-            reset_mmsis.append(ship["mmsi"])
+        if not active_tail or active_tail[-1] is not latest:
+            reset_mmsis.add(mmsi)
             continue
-        if not _is_moving_candidate(ship, config):
-            reset_mmsis.append(ship["mmsi"])
-            continue
-        candidates.append(ship)
+        points_to_store.extend(active_tail)
+        candidates.append(latest)
 
     retention_start = reference_time - timedelta(
         minutes=config["retention_window_minutes"]
@@ -355,7 +375,7 @@ def detect_deviation(request):
     TrajectoryPoint.objects.filter(timestamp__gt=future_limit).delete()
     if reset_mmsis:
         TrajectoryPoint.objects.filter(mmsi__in=reset_mmsis).delete()
-    _upsert_points(candidates)
+    _upsert_points(points_to_store)
 
     states = _load_states(
         reference_time,
@@ -363,6 +383,7 @@ def detect_deviation(request):
     )
     next_states = states.copy()
     for mmsi in reset_mmsis:
+        states.pop(mmsi, None)
         next_states.pop(mmsi, None)
     analysis_start = reference_time - timedelta(
         minutes=config["analysis_window_minutes"]
@@ -503,8 +524,7 @@ def detect_deviation(request):
             f"{angle_text}，已连续偏离{off_duration:.0f}秒。"
             "该结果基于历史航迹走廊筛查，需结合计划航线和现场情况确认。"
         )
-        results.append(
-            {
+        result = {
                 "mmsi": ship["mmsi"],
                 "name": ship["name"],
                 "location": [ship["lon"], ship["lat"]],
@@ -534,7 +554,24 @@ def detect_deviation(request):
                 "details": details,
                 "detail": details,
             }
-        )
+        results.append(result)
+        state["result"] = result
+        next_states[ship["mmsi"]] = state
+
+    processed_mmsis = set(grouped_ships)
+    for mmsi, state in next_states.items():
+        if mmsi in processed_mmsis or not state.get("active"):
+            continue
+        last_seen = _parse_timestamp(state.get("last_seen"))
+        retained_result = state.get("result")
+        if (
+            last_seen is None
+            or (reference_time - last_seen).total_seconds()
+            > config["maximum_gap_seconds"]
+            or not isinstance(retained_result, dict)
+        ):
+            continue
+        results.append({**retained_result, "is_new": False})
 
     cache.set(
         DEVIATION_STATE_CACHE_KEY,

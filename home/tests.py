@@ -223,6 +223,29 @@ class ModelParameterPageTests(SimpleTestCase):
         self.assertNotIn("toggleModelParametersPanel", content)
 
 
+class AisNavigationStatusTemplateTests(SimpleTestCase):
+    def test_dashboard_displays_ais_navigation_status_as_status(self):
+        response = self.client.get(reverse("index"))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("AIS_NAVIGATION_STATUS_LABELS", content)
+        self.assertIn("normaliseAisNavigationStatus", content)
+        self.assertIn("normaliseAisShipType", content)
+        self.assertIn(
+            "船舶类型: ${escapeHtml(normaliseAisShipType(ship.shipType))}",
+            content,
+        )
+        self.assertIn("ship.ship_type ?? ship.shipType ?? ship.vessel_type", content)
+        self.assertIn("状态: ${ship.navStatusLabel}", content)
+        self.assertIn("航速: ${ship.speed.toFixed(1)}节", content)
+        self.assertIn("航向: ${ship.course.toFixed(2)}°", content)
+        self.assertNotIn("航速/航向:", content)
+        self.assertIn("ship-navigation-status-label", content)
+        self.assertNotIn("运动状态:", content)
+        self.assertNotIn("AIS航行状态:", content)
+
+
 class ShipTrajectoryTemplateIntegrationTests(SimpleTestCase):
     def test_detection_detail_mmsi_locates_ship_and_loads_history(self):
         response = self.client.get(reverse("index"))

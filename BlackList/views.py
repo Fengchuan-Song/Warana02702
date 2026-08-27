@@ -5,6 +5,8 @@ from django.core.cache import cache
 from django.db import IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_http_methods
 
 from AISData.detection import detection_cache_key
@@ -119,6 +121,26 @@ def _serialize_blacklist(entry):
 
 def _invalidate_detection_result():
     cache.delete(detection_cache_key("detect-blackList"))
+
+
+def _latest_ship_timestamp(ship_list):
+    latest_value = None
+    latest_datetime = None
+    for ship_info in ship_list:
+        if not isinstance(ship_info, dict):
+            continue
+        value = ship_info.get("timestamp")
+        parsed = parse_datetime(value) if isinstance(value, str) else None
+        if parsed is None:
+            if latest_value is None and value is not None:
+                latest_value = value
+            continue
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed)
+        if latest_datetime is None or parsed > latest_datetime:
+            latest_datetime = parsed
+            latest_value = value
+    return latest_value
 
 
 @require_http_methods(["GET", "POST"])
@@ -256,6 +278,7 @@ def detect_black_list(request):
                     ship_info.get("lon"),
                     ship_info.get("lat"),
                 ],
+                "timestamp": ship_info.get("timestamp"),
                 "name": name,
                 "blacklist_id": entry.id,
                 "ship_type": entry.shipType,
@@ -269,7 +292,7 @@ def detect_black_list(request):
         {
             "success": True,
             "type": "黑名单预警",
-            "timestamp": ship_list[0].get("timestamp"),
+            "timestamp": _latest_ship_timestamp(ship_list),
             "count": len(results),
             "results": results,
             "message": "检测成功",

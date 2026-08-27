@@ -38,6 +38,7 @@ class AISStateUpdate:
     snapshot: list
     upserts: list
     removes: list
+    accepted_dynamic: list
     accepted: int
     duplicate: int
     out_of_order: int
@@ -68,6 +69,15 @@ def _timestamp(value):
 
 def _mapping(value):
     return value.copy() if isinstance(value, dict) else {}
+
+
+def _event_time_order(updates):
+    """Keep a received batch stable while ordering valid observations by time."""
+    maximum_time = datetime.max.replace(tzinfo=dt_timezone.utc)
+    return sorted(
+        updates or [],
+        key=lambda item: _timestamp(item.get("timestamp")) or maximum_time,
+    )
 
 
 def _meaningful_static_value(field, value):
@@ -182,9 +192,10 @@ def merge_ais_state(dynamic_updates, static_updates=None, namespace=None):
         }
     static_state = _mapping(cache.get(static_key))
     changed_mmsis = set()
+    accepted_dynamic = []
     accepted = duplicate = out_of_order = 0
 
-    for incoming in static_updates or []:
+    for incoming in _event_time_order(static_updates):
         mmsi = str(incoming.get("mmsi") or "").strip()
         incoming_time = _timestamp(incoming.get("timestamp"))
         if not mmsi or incoming_time is None:
@@ -210,7 +221,7 @@ def merge_ais_state(dynamic_updates, static_updates=None, namespace=None):
             changed_mmsis.add(mmsi)
         accepted += 1
 
-    for incoming in dynamic_updates or []:
+    for incoming in _event_time_order(dynamic_updates):
         mmsi = str(incoming.get("mmsi") or "").strip()
         incoming_time = _timestamp(incoming.get("timestamp"))
         if not mmsi or incoming_time is None:
@@ -229,6 +240,9 @@ def merge_ais_state(dynamic_updates, static_updates=None, namespace=None):
             duplicate += 1
             continue
         dynamic_state[mmsi] = incoming.copy()
+        accepted_dynamic.append(
+            _enrich(incoming, static_state.get(mmsi) or {})
+        )
         changed_mmsis.add(mmsi)
         accepted += 1
 
@@ -294,6 +308,7 @@ def merge_ais_state(dynamic_updates, static_updates=None, namespace=None):
         snapshot=snapshot,
         upserts=upserts,
         removes=sorted(removes),
+        accepted_dynamic=accepted_dynamic,
         accepted=accepted,
         duplicate=duplicate,
         out_of_order=out_of_order,

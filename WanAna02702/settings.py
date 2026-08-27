@@ -210,12 +210,39 @@ AIS_STATIC_STATE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 # 为违法事件补存识别前的 AIS 航迹。历史按 MMSI 分开缓存，既能跨越
 # ais_worker / detection_worker 进程读取，也避免一个全局大对象反复序列化。
 AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS = 30 * 60
+# 共享行为层需要覆盖异常停泊/非法驻留的最长分析窗口；普通轨迹查询仍
+# 默认返回30分钟，避免其他模型无意扩大数据量。
+AIS_TRAJECTORY_HISTORY_RETENTION_SECONDS = 120 * 60
 AIS_TRAJECTORY_HISTORY_CACHE_TTL = 2 * 60 * 60
-AIS_TRAJECTORY_HISTORY_MAX_POINTS_PER_SHIP = 500
+AIS_TRAJECTORY_HISTORY_MAX_POINTS_PER_SHIP = 2000
 AIS_TRAJECTORY_MIN_DISTANCE_METERS = 3.0
 # 即使船舶位置变化不足最小距离，也按固定时间间隔保留一个点，
 # 用于证明抛锚、驻留等静止状态在时间上的连续性。
 AIS_TRAJECTORY_MAX_INTERVAL_SECONDS = 3 * 60
+
+# 靠泊、锚泊和普通驻留共用的物理行为识别层。各预警模型只在行为结果
+# 之上检查各自的区域、许可和持续时间，不再重复分析同一段低速轨迹。
+LOW_SPEED_BEHAVIOR_RECOGNITION = {
+    "history_window_seconds": 120 * 60,
+    "stationary_speed_knots": 0.5,
+    "exit_speed_knots": 1.0,
+    # 共享层保留三类行为中最大的连续观测间隔；更严格的区域持续时间
+    # 间隔由各预警消费者分别校验。
+    "max_gap_seconds": 20 * 60,
+    "max_episode_distance_metres": 250,
+    "stationary_radius_metres": 250,
+    "min_points": 3,
+    "min_heading_observations": 2,
+    "max_berthing_heading_degrees": 25,
+    "anchor_swing_heading_degrees": 45,
+    "min_anchor_status_ratio": 0.6,
+    "min_moored_status_ratio": 0.6,
+    "moored_underway_min_speed_knots": 1.0,
+    "moored_underway_min_path_distance_metres": 100,
+    "moored_underway_min_duration_seconds": 300,
+    "moored_underway_min_points": 3,
+}
+LOW_SPEED_BEHAVIOR_CACHE_TTL = 2 * 60 * 60
 
 # 模拟摄像头实时推流。独立 management command 会持续循环 Data/Video
 # 中的全部视频；是否存在前端观看者不会影响推流进程的启停。
@@ -245,25 +272,30 @@ OVERLOAD_VIDEO_DETECTION = {
     "device": "0",
 }
 
-# 异常停泊检测参数。监控区域使用 (最小经度, 最小纬度, 最大经度, 最大纬度)。
+# 异常停泊检测参数。
 ABNORMAL_PARKING = {
     "analysis_window_minutes": 120,
     "retention_window_minutes": 240,
     "max_speed_knots": 0.5,
+    "exit_speed_knots": 1.0,
     "distance_threshold_metres": 50,
+    "position_exit_radius_metres": 100,
     "min_duration_minutes": 30,
     "min_points": 3,
-    "monitored_areas": [
-        {
-            "name": "异常停泊监控区",
-            "bounds": (
-                113.6279434,
-                22.1376273,
-                113.7935190,
-                22.2008193,
-            ),
-        },
-    ],
+    "max_gap_minutes": 20,
+    "near_shore_distance_metres": 100,
+    "max_heading_change_degrees": 25,
+    "min_heading_observations": 2,
+    "anchor_swing_heading_degrees": 45,
+    "min_anchor_status_ratio": 0.6,
+    "moored_underway_min_speed_knots": 1.0,
+    "moored_underway_min_path_distance_metres": 100,
+    "moored_underway_min_duration_minutes": 5,
+    "moored_underway_min_points": 3,
+    # 0 表示合法泊位不启用超时预警；有明确业务时限后可配置正数。
+    "legal_max_duration_minutes": 0,
+    "berthing_facility_areas": [],
+    "legal_berthing_areas": [],
 }
 
 # 非法抛锚检测：港口/码头及合法锚地内不预警。
@@ -273,6 +305,10 @@ ILLEGAL_ANCHORED_DETECTION = {
     "min_observations": 3,
     "max_drift_metres": 250,
     "history_window_seconds": 1800,
+    "max_gap_seconds": 300,
+    "min_heading_observations": 2,
+    "anchor_swing_heading_degrees": 45,
+    "min_anchor_status_ratio": 0.6,
 }
 
 # 非法驻留检测：只有在明确配置的禁停区域内持续低速停留才预警。
@@ -283,6 +319,9 @@ ILLEGAL_STAYING = {
     "distance_threshold_metres": 50,
     "min_duration_minutes": 30,
     "min_points": 3,
+    "min_heading_observations": 2,
+    "anchor_swing_heading_degrees": 45,
+    "min_anchor_status_ratio": 0.6,
     "maximum_gap_seconds": 180,
     "max_position_age_seconds": 120,
     "future_tolerance_seconds": 120,
@@ -303,17 +342,35 @@ ILLEGAL_STAYING = {
 
 # 异常徘徊检测参数。启用的 MonitorRegion 数据库记录会覆盖默认监控区域。
 ABNORMAL_WANDERING = {
-    "analysis_window_minutes": 60,
-    "retention_window_minutes": 120,
+    "analysis_window_minutes": 30,
+    "retention_window_minutes": 60,
     "min_points": 10,
-    "min_duration_minutes": 10,
+    "min_duration_minutes": 30,
+    "max_range_metres": 3000,
     "min_path_distance_metres": 300,
     "min_leg_distance_metres": 20,
-    "min_turn_angle_degrees": 45,
-    "min_turn_count": 3,
-    "max_displacement_ratio": 0.65,
+    "min_turn_angle_degrees": 30,
+    "min_turn_count": 4,
+    "max_displacement_ratio": 0.3,
+    "min_revisit_ratio": 0.4,
+    "grid_size_metres": 200,
+    "revisit_enabled": True,
+    "min_speed_knots": 0.5,
+    "max_valid_speed_knots": 102.2,
+    "max_jump_speed_knots": 80,
+    "min_jump_distance_metres": 500,
+    "min_turn_interval_seconds": 30,
     "max_gap_minutes": 5,
+    # True=只检测异常徘徊监控区；False=对全部有效AIS轨迹运行模型。
+    "monitored_only": True,
     "min_area_point_ratio": 0.5,
+    "normal_anchorage_max_speed_knots": 0.5,
+    "normal_anchorage_max_range_metres": 200,
+    "normal_port_max_speed_knots": 3,
+    "normal_port_max_range_metres": 1000,
+    "normal_area_point_ratio": 0.8,
+    # 可按 monitored_areas 相同的 bounds/vertices 格式配置施工区等合法作业区。
+    "legal_operation_areas": [],
     "monitored_areas": [
         {
             "name": "异常徘徊监控区",
@@ -378,6 +435,7 @@ CROSSING_BOUNDARY_DETECTION = {
 # 围栏和走私研判依赖完整前后轨迹，不能像持续状态模型一样合并AIS快照。
 # 队列设置上限用于在检测进程异常时保护Redis。
 TRAJECTORY_DETECTION_QUEUE_MAX_SNAPSHOTS = 500
+DETECTION_INCREMENTAL_QUEUE_BATCH_SIZE = 100
 
 # 海上走私风险研判。区域和航次许可由 Smuggling 数据表维护。
 SMUGGLING_DETECTION = {
@@ -435,6 +493,11 @@ LOW_SPEED_DETECTION = {
     # 0=机动航行，15=未定义；缺失状态由 allow_missing_nav_status 控制。
     "eligible_nav_statuses": [0, 15],
     "allow_missing_nav_status": True,
+    # nav_status 可能未及时更新；任何状态下连续5分钟处于50米范围内，
+    # 且航速不超过0.5节时，均按锚泊/静止排除。
+    "stationary_max_speed_knots": 0.5,
+    "stationary_max_drift_metres": 50.0,
+    "stationary_minimum_duration_seconds": 300,
     "monitored_only": False,
     "zones": [],
 }

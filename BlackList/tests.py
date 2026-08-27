@@ -1,7 +1,7 @@
 import json
 
 from django.core.cache import cache
-from django.test import Client, RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from AISData.detection import DETECTORS, detection_cache_key
@@ -10,6 +10,15 @@ from .models import BlackList
 from .views import detect_black_list
 
 
+TEST_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "blacklist-tests",
+    }
+}
+
+
+@override_settings(CACHES=TEST_CACHES)
 class BlackListApiTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -163,6 +172,7 @@ class BlackListApiTests(TestCase):
         self.assertContains(response, "function deleteBlacklistEntry(entry)")
 
 
+@override_settings(CACHES=TEST_CACHES)
 class BlackListDetectionTests(TestCase):
     def setUp(self):
         self.request = RequestFactory().get("/internal/black-list/")
@@ -203,7 +213,42 @@ class BlackListDetectionTests(TestCase):
         self.assertEqual(result["mmsi"], "123456789")
         self.assertEqual(result["name"], "名单船")
         self.assertEqual(result["blacklist_id"], self.entry.id)
+        self.assertEqual(
+            result["timestamp"],
+            "2020-12-27T08:00:00+00:00",
+        )
+        self.assertEqual(
+            payload["timestamp"],
+            "2020-12-27T08:00:00+00:00",
+        )
         self.assertIn("重点关注", result["details"])
+
+    def test_payload_uses_latest_snapshot_timestamp_not_first_ship(self):
+        payload = self.call_detector(
+            [
+                {
+                    "timestamp": "2020-12-27T08:00:00+00:00",
+                    "mmsi": "987654321",
+                    "lon": 114.0,
+                    "lat": 22.4,
+                },
+                {
+                    "timestamp": "2020-12-27T08:05:00+00:00",
+                    "mmsi": "123456789",
+                    "lon": 114.1,
+                    "lat": 22.5,
+                },
+            ]
+        )
+
+        self.assertEqual(
+            payload["timestamp"],
+            "2020-12-27T08:05:00+00:00",
+        )
+        self.assertEqual(
+            payload["results"][0]["timestamp"],
+            "2020-12-27T08:05:00+00:00",
+        )
 
     def test_inactive_entry_does_not_alert(self):
         self.entry.is_active = False

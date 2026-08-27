@@ -1,6 +1,13 @@
-from django.test import SimpleTestCase
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 
 from .inference import OverloadDetector
+from .management.commands.overload_stream_worker import (
+    FEATURE_ID,
+    publish_overload_detection,
+)
 
 
 class OverloadDetectorClassificationTests(SimpleTestCase):
@@ -53,3 +60,90 @@ class OverloadDetectorClassificationTests(SimpleTestCase):
         self.assertTrue(inference.overloaded)
 
 # Create your tests here.
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache"
+        }
+    }
+)
+class OverloadPublicationTests(SimpleTestCase):
+    class RecordingChannelLayer:
+        def __init__(self):
+            self.events = []
+
+        async def group_send(self, group, event):
+            self.events.append((group, event))
+
+    def setUp(self):
+        cache.clear()
+        self.channel_layer = self.RecordingChannelLayer()
+
+    @staticmethod
+    def payload(camera_key="harbor-01", confirmed=True):
+        return {
+            "success": True,
+            "feature_id": FEATURE_ID,
+            "count": 1 if confirmed else 0,
+            "results": (
+                [
+                    {
+                        "camera_key": camera_key,
+                        "status": "超载预警",
+                        "risk": "高风险",
+                    }
+                ]
+                if confirmed
+                else []
+            ),
+        }
+
+    @patch(
+        "Overload.management.commands.overload_stream_worker."
+        "persist_detection_payload"
+    )
+    def test_overload_event_marks_first_continuing_and_reappearing_frames(
+        self, persist
+    ):
+        first = publish_overload_detection(
+            self.payload(), self.channel_layer
+        )
+        continuing = publish_overload_detection(
+            self.payload(), self.channel_layer
+        )
+        publish_overload_detection(
+            self.payload(confirmed=False), self.channel_layer
+        )
+        reappearing = publish_overload_detection(
+            self.payload(), self.channel_layer
+        )
+
+        self.assertIs(first["results"][0]["is_new"], True)
+        self.assertIs(continuing["results"][0]["is_new"], False)
+        self.assertIs(reappearing["results"][0]["is_new"], True)
+        self.assertEqual(
+            first["results"][0]["prediction_id"],
+            continuing["results"][0]["prediction_id"],
+        )
+        self.assertNotEqual(
+            continuing["results"][0]["prediction_id"],
+            reappearing["results"][0]["prediction_id"],
+        )
+        self.assertEqual(persist.call_count, 4)
+
+    @patch(
+        "Overload.management.commands.overload_stream_worker."
+        "persist_detection_payload"
+    )
+    def test_overload_cameras_have_independent_event_state(self, persist):
+        first_camera = publish_overload_detection(
+            self.payload("harbor-01"), self.channel_layer
+        )
+        second_camera = publish_overload_detection(
+            self.payload("harbor-02"), self.channel_layer
+        )
+
+        self.assertIs(first_camera["results"][0]["is_new"], True)
+        self.assertIs(second_camera["results"][0]["is_new"], True)

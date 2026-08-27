@@ -157,7 +157,7 @@ class DetectHighSpeedTests(TestCase):
 
         self.assertEqual(payload["count"], 0)
 
-    def test_latest_record_per_mmsi_is_used(self):
+    def test_all_incremental_records_are_stored_and_latest_drives_output(self):
         _, payload = self.call_view(
             [
                 self.ship(0, 35),
@@ -166,8 +166,42 @@ class DetectHighSpeedTests(TestCase):
         )
 
         self.assertEqual(payload["count"], 0)
-        self.assertEqual(HighSpeedPoint.objects.count(), 1)
-        self.assertEqual(HighSpeedPoint.objects.get().speed, 20)
+        self.assertEqual(HighSpeedPoint.objects.count(), 2)
+        self.assertEqual(
+            list(
+                HighSpeedPoint.objects.order_by("timestamp").values_list(
+                    "speed", flat=True
+                )
+            ),
+            [35, 20],
+        )
+
+    def test_one_incremental_batch_can_establish_high_speed_duration(self):
+        ships = [
+            self.ship(seconds, 35)
+            for seconds in (0, 30, 60, 90, 120)
+        ]
+
+        _, payload = self.call_view(ships)
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 120)
+        self.assertEqual(HighSpeedPoint.objects.count(), 5)
+
+    def test_unmodified_active_vessel_is_retained_until_incremental_gap(self):
+        self.feed([35, 35, 35, 35, 35])
+
+        _, retained = self.call_view(
+            [self.ship(150, 20, mmsi="987654321")]
+        )
+        _, expired = self.call_view(
+            [self.ship(180, 20, mmsi="987654321")]
+        )
+
+        self.assertEqual(retained["count"], 1)
+        self.assertEqual(retained["results"][0]["mmsi"], "123456789")
+        self.assertFalse(retained["results"][0]["is_new"])
+        self.assertEqual(expired["count"], 0)
 
     def test_repeated_high_speed_frames_keep_one_event(self):
         first, latest_ship = self.feed([35, 35, 35, 35, 35])

@@ -20,6 +20,18 @@ class DetectionModelConfiguration(models.Model):
 class ViolationEventRecord(models.Model):
     """A deduplicated illegal-event detection produced by any model."""
 
+    source_namespace = models.CharField(
+        "AIS来源命名空间",
+        max_length=32,
+        default="operational",
+        db_index=True,
+    )
+    simulation_id = models.CharField(
+        "模拟回放标识",
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
     event_key = models.CharField("事件键", max_length=64, unique=True)
     fingerprint = models.CharField("事件指纹", max_length=64, db_index=True)
     feature_id = models.CharField("检测类型标识", max_length=64, db_index=True)
@@ -40,6 +52,10 @@ class ViolationEventRecord(models.Model):
     class Meta:
         ordering = ("-last_detected_at", "-id")
         indexes = [
+            models.Index(
+                fields=("source_namespace", "simulation_id", "-last_detected_at"),
+                name="ais_violation_source_time",
+            ),
             models.Index(
                 fields=("feature_id", "-last_detected_at"),
                 name="ais_violation_feature_time",

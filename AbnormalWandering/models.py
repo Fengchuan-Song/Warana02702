@@ -1,15 +1,20 @@
 from django.db import models
 
 class MonitorRegion(models.Model):
-    """
-    配置监控区域（对应原代码中的 REGION_COORDS）
-    """
+    """A configurable polygon area monitored for abnormal wandering."""
+
     name = models.CharField(max_length=100, verbose_name="区域名称")
     min_lon = models.FloatField(verbose_name="最小经度")
     max_lon = models.FloatField(verbose_name="最大经度")
     min_lat = models.FloatField(verbose_name="最小纬度")
     max_lat = models.FloatField(verbose_name="最大纬度")
+    vertices = models.JSONField("多边形顶点", default=list, blank=True)
     is_active = models.BooleanField(default=True, verbose_name="是否启用")
+
+    class Meta:
+        ordering = ("name", "id")
+        verbose_name = "异常徘徊监控区"
+        verbose_name_plural = "异常徘徊监控区"
 
     def __str__(self):
         return self.name

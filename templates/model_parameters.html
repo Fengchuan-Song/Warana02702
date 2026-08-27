@@ -430,7 +430,7 @@
             <div>
                 <h1>模型参数配置</h1>
                 <p class="page-subtitle">
-                    在此统一管理违法预警模型的数值阈值。保存后的配置将在对应模型下一次分析时生效。
+                    在此统一管理违法预警模型的检测参数。保存后的配置将在对应模型下一次分析时生效。
                 </p>
             </div>
             <a class="back-link" href="{% url 'index' %}" aria-label="返回监控地图">
@@ -611,17 +611,27 @@
                 unit.textContent = field.unit || '数值';
                 heading.append(label, unit);
 
-                const input = document.createElement('input');
+                const input = document.createElement(
+                    field.type === 'boolean' ? 'select' : 'input'
+                );
                 input.id = `model-parameter-${field.key}`;
                 input.className = 'parameter-input model-parameter-input';
-                input.type = 'number';
                 input.required = true;
                 input.dataset.key = field.key;
                 input.dataset.valueType = field.type;
-                input.value = configuration.parameters[field.key];
-                input.step = field.step ?? 'any';
-                if (field.min !== null) input.min = field.min;
-                if (field.max !== null) input.max = field.max;
+                if (field.type === 'boolean') {
+                    input.append(
+                        new Option('启用', 'true'),
+                        new Option('停用', 'false')
+                    );
+                    input.value = String(Boolean(configuration.parameters[field.key]));
+                } else {
+                    input.type = 'number';
+                    input.value = configuration.parameters[field.key];
+                    input.step = field.step ?? 'any';
+                    if (field.min !== null) input.min = field.min;
+                    if (field.max !== null) input.max = field.max;
+                }
 
                 const help = document.createElement('p');
                 help.className = 'parameter-help';
@@ -629,11 +639,16 @@
                     field.min !== null ? `最小 ${field.min}` : '',
                     field.max !== null ? `最大 ${field.max}` : '',
                 ].filter(Boolean).join('，');
-                help.textContent = [field.help, range].filter(Boolean).join(' · ') || '请输入有效数值';
+                help.textContent = [field.help, range].filter(Boolean).join(' · ')
+                    || (field.type === 'boolean' ? '请选择启用或停用' : '请输入有效数值');
 
                 const defaultValue = document.createElement('div');
                 defaultValue.className = 'parameter-default';
-                defaultValue.textContent = `系统默认：${configuration.defaults[field.key]}`;
+                const rawDefault = configuration.defaults[field.key];
+                const displayDefault = field.type === 'boolean'
+                    ? (rawDefault ? '启用' : '停用')
+                    : rawDefault;
+                defaultValue.textContent = `系统默认：${displayDefault}`;
 
                 card.append(heading, input, help, defaultValue);
                 fieldsContainer.appendChild(card);
@@ -657,7 +672,7 @@
                 option.textContent = configuration.fields.length === 0
                     ? `${configuration.label}`
                     : (configuration.is_customized
-                        ? `${configuration.label}（已自定义）`
+                        ? `${configuration.label}`
                         : configuration.label);
                 modelSelect.appendChild(option);
             });
@@ -695,9 +710,13 @@
                     input.focus();
                     return null;
                 }
-                parameters[input.dataset.key] = input.dataset.valueType === 'integer'
-                    ? Number.parseInt(input.value, 10)
-                    : Number(input.value);
+                if (input.dataset.valueType === 'boolean') {
+                    parameters[input.dataset.key] = input.value === 'true';
+                } else if (input.dataset.valueType === 'integer') {
+                    parameters[input.dataset.key] = Number.parseInt(input.value, 10);
+                } else {
+                    parameters[input.dataset.key] = Number(input.value);
+                }
             }
             return parameters;
         }

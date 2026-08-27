@@ -576,13 +576,29 @@ def _retain_recent_events(
     reference_time,
     new_results,
     retention_minutes,
+    fence_modes=None,
 ):
+    fence_modes = {
+        str(key): value
+        for key, value in (fence_modes or {}).items()
+    }
     retained = {}
     cached_events = cache.get(CROSSING_EVENT_CACHE_KEY, [])
     if isinstance(cached_events, list):
         for event in cached_events:
             if not isinstance(event, dict):
                 continue
+            if fence_modes:
+                current_mode = fence_modes.get(str(event.get("fence_id")))
+                direction = event.get("crossing_direction")
+                if current_mode is None or not (
+                    direction == "transit"
+                    or direction == current_mode
+                    or current_mode == "both"
+                ):
+                    # A rule change must immediately stop publishing a cached
+                    # result that the current fence would no longer emit.
+                    continue
             event_timestamp = _parse_timestamp(
                 event.get("first_detected_at")
             )
@@ -833,6 +849,10 @@ def detect_crossing_boundary(request):
         reference_time,
         results,
         config["event_retention_minutes"],
+        fence_modes={
+            compiled["object"].id: compiled["object"].crossing_mode
+            for compiled in fences
+        },
     )
     return _empty_response(
         timestamp=reference_time,

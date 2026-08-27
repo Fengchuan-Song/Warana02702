@@ -2,7 +2,7 @@ from math import isfinite
 
 from django.conf import settings
 
-from IllegalAnchored.zones import point_in_polygon
+from IllegalAnchored.zones import distance_m, point_in_polygon
 
 
 DEFAULT_CONFIG = {
@@ -18,6 +18,9 @@ DEFAULT_CONFIG = {
     "event_retention_minutes": 30,
     "eligible_nav_statuses": [0, 15],
     "allow_missing_nav_status": True,
+    "stationary_max_speed_knots": 0.5,
+    "stationary_max_drift_metres": 50.0,
+    "stationary_minimum_duration_seconds": 300,
     "monitored_only": False,
     "zones": [],
 }
@@ -79,15 +82,16 @@ def get_low_speed_config():
     config["event_retention_minutes"] = max(
         1, int(config["event_retention_minutes"])
     )
-    raw_statuses = config.get("eligible_nav_statuses")
-    statuses = set()
-    if isinstance(raw_statuses, (list, tuple, set)):
-        for value in raw_statuses:
-            try:
-                statuses.add(int(value))
-            except (TypeError, ValueError):
-                continue
-    config["eligible_nav_statuses"] = statuses
+    for key in ("eligible_nav_statuses",):
+        raw_statuses = config.get(key)
+        statuses = set()
+        if isinstance(raw_statuses, (list, tuple, set)):
+            for value in raw_statuses:
+                try:
+                    statuses.add(int(value))
+                except (TypeError, ValueError):
+                    continue
+        config[key] = statuses
     config["allow_missing_nav_status"] = _as_bool(
         config.get("allow_missing_nav_status"),
         DEFAULT_CONFIG["allow_missing_nav_status"],
@@ -95,6 +99,27 @@ def get_low_speed_config():
     config["monitored_only"] = _as_bool(
         config.get("monitored_only"),
         DEFAULT_CONFIG["monitored_only"],
+    )
+    stationary_speed = _finite_float(config.get("stationary_max_speed_knots"))
+    stationary_drift = _finite_float(config.get("stationary_max_drift_metres"))
+    stationary_duration = _finite_float(
+        config.get("stationary_minimum_duration_seconds")
+    )
+    config["stationary_max_speed_knots"] = max(
+        0.0,
+        0.5 if stationary_speed is None else stationary_speed,
+    )
+    config["stationary_max_drift_metres"] = max(
+        0.0,
+        50.0 if stationary_drift is None else stationary_drift,
+    )
+    config["stationary_minimum_duration_seconds"] = max(
+        0,
+        int(
+            config["minimum_duration_seconds"]
+            if stationary_duration is None
+            else stationary_duration
+        ),
     )
     if not isinstance(config.get("zones"), (list, tuple)):
         config["zones"] = []
@@ -153,6 +178,57 @@ def get_speed_rule(lon, lat, config):
     }
 
 
+def _latest_stationary_run_end(segment, config):
+    """Return the last index ending a proven stationary run, if any."""
+    maximum_speed = config["stationary_max_speed_knots"]
+    minimum_duration = config["stationary_minimum_duration_seconds"]
+    maximum_drift = config["stationary_max_drift_metres"]
+    run_start = None
+    latest_end = None
+
+    for index, point in enumerate(segment):
+        if point["speed"] <= maximum_speed:
+            if run_start is None:
+                run_start = index
+        else:
+            if run_start is not None:
+                run = segment[run_start:index]
+                duration = (
+                    run[-1]["timestamp"] - run[0]["timestamp"]
+                ).total_seconds()
+                drift = max(
+                    distance_m(
+                        item["longitude"],
+                        item["latitude"],
+                        run[0]["longitude"],
+                        run[0]["latitude"],
+                    )
+                    for item in run
+                )
+                if duration >= minimum_duration and drift <= maximum_drift:
+                    latest_end = index - 1
+            run_start = None
+
+    if run_start is not None:
+        run = segment[run_start:]
+        duration = (
+            run[-1]["timestamp"] - run[0]["timestamp"]
+        ).total_seconds()
+        drift = max(
+            distance_m(
+                item["longitude"],
+                item["latitude"],
+                run[0]["longitude"],
+                run[0]["latitude"],
+            )
+            for item in run
+        )
+        if duration >= minimum_duration and drift <= maximum_drift:
+            latest_end = len(segment) - 1
+
+    return latest_end
+
+
 def continuous_low_speed(points, config):
     if not points:
         return None
@@ -180,6 +256,16 @@ def continuous_low_speed(points, config):
         segment.append(point)
         later_timestamp = point["timestamp"]
     segment.reverse()
+
+    stationary_end = _latest_stationary_run_end(segment, config)
+    if stationary_end == len(segment) - 1:
+        return None
+    if stationary_end is not None:
+        # AIS navigation status is operator-entered and may remain 0 while a
+        # vessel is actually anchored. Start a new underway episode only after
+        # a stationary run has been proven by both time and displacement. A
+        # single low SOG sample must not reset a moving low-speed voyage.
+        segment = segment[stationary_end + 1 :]
 
     if len(segment) < config["minimum_observations"]:
         return None

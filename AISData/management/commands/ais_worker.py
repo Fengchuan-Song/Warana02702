@@ -1,11 +1,11 @@
 import time
 import csv
-import os
 from pathlib import Path
 from django.core.management.base import BaseCommand
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from AISData.consumers import AisConsumer
+from AISData.behavior_recognition import update_behavior_results
 from AISData.detection_queue import enqueue_all_detections
 from AISData.ais_state import (
     file_signature,
@@ -21,7 +21,27 @@ from AISData.normalization import (
 from AISData.trajectory_history import append_ais_history
 from WanAna02702.settings import BASE_DIR
 
-AIS_FOLDER = os.path.join(BASE_DIR, 'Data/AIS/timeDivision_v2_30s')
+AIS_FOLDER = Path(BASE_DIR) / "Data" / "AIS" / "retime"
+
+
+def discover_ais_csv_files(folder=AIS_FOLDER):
+    """Return every CSV below the replay root in stable relative-path order."""
+    root = Path(folder)
+    if not root.is_dir():
+        return []
+    return sorted(
+        (
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.lower() == ".csv"
+        ),
+        key=lambda path: path.relative_to(root).as_posix().casefold(),
+    )
+
+
+def ais_checkpoint_key(path, folder=AIS_FOLDER):
+    """Keep same-named CSV files in different subdirectories independent."""
+    return Path(path).relative_to(Path(folder)).as_posix()
 
 class Command(BaseCommand):
     help = 'Starts the AIS data worker to monitor files and push updates via WebSocket.'
@@ -75,16 +95,18 @@ class Command(BaseCommand):
             try:
                 # 1. 查找所有 CSV 文件并按文件名（时间）排序。消费进度
                 # 存在共享缓存中，worker 重启后不会重新投递未修改文件。
-                all_files = sorted([f for f in os.listdir(AIS_FOLDER) if f.endswith('.csv')])
+                all_files = discover_ais_csv_files()
                 new_files_to_process = []
                 checkpoints = load_file_checkpoints()
                 
                 # 2. 识别新增文件
-                for f in all_files:
-                    path = Path(AIS_FOLDER) / f
+                for path in all_files:
+                    checkpoint_key = ais_checkpoint_key(path)
                     signature = file_signature(path)
-                    if checkpoints.get(f) != signature:
-                        new_files_to_process.append((f, signature))
+                    if checkpoints.get(checkpoint_key) != signature:
+                        new_files_to_process.append(
+                            (path, checkpoint_key, signature)
+                        )
                 
                 if not new_files_to_process:
                     self.stdout.write(f"No new files found. Checking again in {SCAN_INTERVAL} seconds...")
@@ -94,12 +116,11 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.NOTICE(f"Found {len(new_files_to_process)} new file(s) to process."))
                 
                 # 3. 遍历并处理新增文件
-                for latest_file, signature in new_files_to_process:
-                    file_path = os.path.join(AIS_FOLDER, latest_file)
-                    self.stdout.write(f"Processing file: {latest_file}...")
+                for file_path, checkpoint_key, signature in new_files_to_process:
+                    self.stdout.write(f"Processing file: {checkpoint_key}...")
                     
                     # 4. 读取 CSV 文件内容并解析
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with file_path.open('r', encoding='utf-8') as f:
                         reader = csv.DictReader(f)
                         ais_data, ais_history_points, static_updates = (
                             self.convert_batch(reader)
@@ -107,16 +128,20 @@ class Command(BaseCommand):
                                 
                     
                     if not ais_data and not static_updates:
-                        self.stdout.write(self.style.WARNING(f"File {latest_file} is empty or invalid after parsing. Skipping."))
-                        save_file_checkpoint(latest_file, signature)
+                        self.stdout.write(self.style.WARNING(f"File {checkpoint_key} is empty or invalid after parsing. Skipping."))
+                        save_file_checkpoint(checkpoint_key, signature)
                         continue
 
                     # 前端和检测器仍接收每艘船的最新状态；文件内全部有效
                     # 观测点另存入滚动历史，供违法事件补齐识别前航迹。
                     append_ais_history(ais_history_points)
+                    update_behavior_results(ais_history_points)
 
                     state_update = merge_ais_state(
-                        dynamic_updates=ais_data,
+                        # Merge every observation, not only the per-vessel
+                        # snapshot, so incremental detectors receive the full
+                        # accepted time series from this file.
+                        dynamic_updates=ais_history_points,
                         static_updates=static_updates,
                     )
                     ais_snapshot = state_update.snapshot
@@ -141,12 +166,13 @@ class Command(BaseCommand):
                             },
                         )
 
-                    self.stdout.write(self.style.SUCCESS(f"Pushed update from: {latest_file} ({len(delta['upserts'])} upserts, {len(delta['removes'])} removes)"))
+                    self.stdout.write(self.style.SUCCESS(f"Pushed update from: {checkpoint_key} ({len(delta['upserts'])} upserts, {len(delta['removes'])} removes)"))
 
                     # 只投递轻量触发信号。独立 detection_worker 负责执行
                     # 算法，避免重型检测阻塞下一批 AIS 数据推送。
                     queue_status = enqueue_all_detections(
-                        ship_list=ais_snapshot
+                        ship_list=ais_snapshot,
+                        incremental_ship_list=state_update.accepted_dynamic,
                     )
                     queued_count = sum(queue_status.values())
                     self.stdout.write(
@@ -158,7 +184,7 @@ class Command(BaseCommand):
                     )
                     
                     # 6. 【关键操作】标记文件为已处理
-                    save_file_checkpoint(latest_file, signature)
+                    save_file_checkpoint(checkpoint_key, signature)
                     
                     # 【重要】每次推送后短暂等待，模拟数据间隔和避免 Redis 拥堵
                     time.sleep(SCAN_INTERVAL) 

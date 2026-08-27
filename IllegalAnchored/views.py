@@ -8,12 +8,14 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET
 
+from AISData.behavior_recognition import behavior_results_for_request
 from AISData.maritime_zones import (
     MaritimeZoneDataError,
     PORT_ZONE_TYPES,
     zones_containing_point,
 )
 from AISData.normalization import normalise_ais_name
+from AISData.low_speed_behavior import BEHAVIOR_ANCHORING
 
 from .zones import SOURCE_METADATA, classify_location, distance_m
 
@@ -24,6 +26,10 @@ DEFAULT_ILLEGAL_ANCHORED_CONFIG = {
     "min_observations": 3,
     "max_drift_metres": 250.0,
     "history_window_seconds": 1800,
+    "max_gap_seconds": 300,
+    "min_heading_observations": 2,
+    "anchor_swing_heading_degrees": 45.0,
+    "min_anchor_status_ratio": 0.6,
 }
 HISTORY_CACHE_KEY = "illegal_anchored:history:v1"
 HISTORY_CACHE_TIMEOUT = 24 * 60 * 60
@@ -51,6 +57,16 @@ def _config():
     config["history_window_seconds"] = max(
         config["min_duration_seconds"],
         int(config["history_window_seconds"]),
+    )
+    config["max_gap_seconds"] = max(1, int(config["max_gap_seconds"]))
+    config["min_heading_observations"] = max(
+        2, int(config["min_heading_observations"])
+    )
+    config["anchor_swing_heading_degrees"] = min(
+        180.0, config["anchor_swing_heading_degrees"]
+    )
+    config["min_anchor_status_ratio"] = min(
+        1.0, config["min_anchor_status_ratio"]
     )
     return config
 
@@ -108,6 +124,14 @@ def _normalise_ship(ship_info):
         nav_status = int(float(ship_info.get("nav_status")))
     except (TypeError, ValueError):
         nav_status = None
+    try:
+        heading = float(ship_info.get("heading"))
+    except (TypeError, ValueError):
+        heading = None
+    if heading is not None and (
+        not math.isfinite(heading) or not 0 <= heading < 360
+    ):
+        heading = None
 
     raw_port_name = (
         ship_info.get("matched_port_name")
@@ -126,6 +150,7 @@ def _normalise_ship(ship_info):
         "speed": max(0.0, speed),
         "timestamp": timestamp,
         "nav_status": nav_status,
+        "heading": heading,
         "at_dock": _as_bool(ship_info.get("at_dock", False)),
         "matched_port_name": matched_port_name,
     }
@@ -136,13 +161,9 @@ def _is_anchor_candidate(ship, config):
     if ship["at_dock"]:
         return False
 
-    # Navigation status 0 (under way using engine) is frequently stale while
-    # a vessel is stationary.  Treat it as a low-speed fallback candidate;
-    # duration, drift and legal-zone checks below still have to pass.
-    return (
-        ship["nav_status"] in {0, 1, None, 15}
-        and ship["speed"] <= config["max_speed_knots"]
-    )
+    # Low speed starts a shared behavior episode.  Navigation status and heading
+    # are evidence used by the classifier, not a substitute for classification.
+    return ship["speed"] <= config["max_speed_knots"]
 
 
 def _is_normal_port_operation(ship, classification):
@@ -195,9 +216,25 @@ def _append_history(history, ship, classification, config):
         "episode_started_at": episode_started_at.isoformat(),
         "lon": ship["lon"],
         "lat": ship["lat"],
+        "speed": ship["speed"],
+        "heading": ship["heading"],
+        "nav_status": ship["nav_status"],
+        "at_dock": ship["at_dock"],
+        "in_port_basin": False,
+        "berthing_facility": False,
         "zone_name": classification["zone_name"],
         "state": classification["state"],
     }
+
+    if points:
+        last_timestamp = _parse_timestamp(points[-1].get("timestamp"))
+        if (
+            last_timestamp is not None
+            and (timestamp - last_timestamp).total_seconds()
+            > config["max_gap_seconds"]
+        ):
+            point["episode_started_at"] = point["timestamp"]
+            points = []
 
     if points:
         last_timestamp = _parse_timestamp(points[-1].get("timestamp"))
@@ -298,34 +335,69 @@ def detect_illegal_anchored(request):
     if not ships:
         return _empty_response(skipped_count)
 
-    history = cache.get(HISTORY_CACHE_KEY, {})
-    if not isinstance(history, dict):
-        history = {}
-
     latest_timestamp = max(ship["timestamp"] for ship in ships)
-    stale_cutoff = latest_timestamp - timedelta(
-        seconds=config["history_window_seconds"]
+    shared_results = behavior_results_for_request(
+        ships,
+        getattr(request, "ais_context", None),
     )
-    for mmsi, points in list(history.items()):
-        if not points:
-            history.pop(mmsi, None)
-            continue
-        last_timestamp = _parse_timestamp(points[-1].get("timestamp"))
-        if last_timestamp is None or last_timestamp < stale_cutoff:
-            history.pop(mmsi, None)
 
     alerts = []
     for ship in ships:
         classification = classify_location(ship["lon"], ship["lat"])
-        points = _append_history(history, ship, classification, config)
-        duration = _episode_duration(points, config)
-        if duration < config["min_duration_seconds"]:
+        if (
+            not _is_anchor_candidate(ship, config)
+            or _is_normal_port_operation(ship, classification)
+            or classification["state"] in {"authorized", "outside_coverage"}
+        ):
+            continue
+        shared = shared_results.get(ship["mmsi"]) or {}
+        behavior = shared.get("analysis") or {}
+        if (
+            not behavior.get("qualified")
+            or behavior.get("behavior") != BEHAVIOR_ANCHORING
+            or behavior.get("point_count", 0) < config["min_observations"]
+            or behavior.get("position_radius_metres") is None
+            or behavior["position_radius_metres"] > config["max_drift_metres"]
+        ):
             continue
 
-        episode_started_at = (
-            _parse_timestamp(points[-1].get("episode_started_at"))
-            or _parse_timestamp(points[0].get("timestamp"))
+        # The physical episode is shared.  Only trim it at legal-zone borders
+        # here so prohibited-area duration and event identity remain model
+        # specific without re-running trajectory classification.
+        legal_segment = []
+        later = None
+        for point in reversed(behavior.get("points") or []):
+            if point["speed"] > config["max_speed_knots"]:
+                break
+            if later is not None:
+                gap = (later["timestamp"] - point["timestamp"]).total_seconds()
+                if gap < 0 or gap > config["max_gap_seconds"]:
+                    break
+            point_classification = classify_location(point["lon"], point["lat"])
+            if (
+                point_classification["state"] != classification["state"]
+                or point_classification.get("zone_name")
+                != classification.get("zone_name")
+            ):
+                break
+            legal_segment.append(point)
+            later = point
+        legal_segment.reverse()
+        if len(legal_segment) < config["min_observations"]:
+            continue
+        episode_started_at = _parse_timestamp(
+            legal_segment[0].get("timestamp")
         )
+        episode_ended_at = _parse_timestamp(
+            legal_segment[-1].get("timestamp")
+        )
+        if episode_started_at is None or episode_ended_at is None:
+            continue
+        duration = max(
+            0, int((episode_ended_at - episode_started_at).total_seconds())
+        )
+        if duration < config["min_duration_seconds"]:
+            continue
         episode_started_at_text = episode_started_at.isoformat()
 
         reason = classification["reason"]
@@ -334,6 +406,7 @@ def detect_illegal_anchored(request):
             f"疑似非法抛锚：{reason}；所在区域：{zone_name}；"
             f"航速{ship['speed']:.2f}节，低速/锚泊状态已持续"
             f"{duration // 60}分{duration % 60}秒。"
+            f"行为证据：{behavior['reason']}。"
             "该结果为AIS规则预警，需结合锚泊申请、应急报告和现场执法确认。"
         )
         alerts.append(
@@ -346,6 +419,17 @@ def detect_illegal_anchored(request):
                 "zone": zone_name,
                 "reason": reason,
                 "duration_seconds": duration,
+                "behavior": BEHAVIOR_ANCHORING,
+                "behavior_reason": behavior["reason"],
+                "anchor_status_ratio": round(
+                    behavior["anchor_status_ratio"], 3
+                ),
+                "heading_variation_degrees": (
+                    round(behavior["heading_variation_degrees"], 2)
+                    if behavior["heading_variation_degrees"] is not None
+                    else None
+                ),
+                "position_swing": behavior["position_swing"],
                 "first_detected_at": episode_started_at_text,
                 "trajectory_started_at": episode_started_at_text,
                 "episode_started_at": episode_started_at_text,
@@ -364,12 +448,6 @@ def detect_illegal_anchored(request):
             }
         )
 
-    cache.set(
-        HISTORY_CACHE_KEY,
-        history,
-        timeout=HISTORY_CACHE_TIMEOUT,
-    )
-
     return JsonResponse(
         {
             "success": True,
@@ -385,6 +463,16 @@ def detect_illegal_anchored(request):
                 "max_drift_metres": config["max_drift_metres"],
                 "history_window_seconds": config[
                     "history_window_seconds"
+                ],
+                "max_gap_seconds": config["max_gap_seconds"],
+                "min_heading_observations": config[
+                    "min_heading_observations"
+                ],
+                "anchor_swing_heading_degrees": config[
+                    "anchor_swing_heading_degrees"
+                ],
+                "min_anchor_status_ratio": config[
+                    "min_anchor_status_ratio"
                 ],
             },
             "sources": SOURCE_METADATA,

@@ -8,6 +8,7 @@ OPERATIONAL_SOURCE_ID = "operational"
 
 MODEL_RUNTIME_CACHE_KEYS = (
     "abnormal_transfer:tracking_state:v1",
+    "abnormal_wandering:event_state:v1",
     "collision:risk_state:v1",
     "deviation:tracking_state:v2",
     "double_dragging:event_state:v1",

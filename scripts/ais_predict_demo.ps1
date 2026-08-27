@@ -2,7 +2,7 @@ param(
     [ValidateSet('start', 'stop', 'status')]
     [string]$Action = 'start',
 
-    [string]$AISFile = 'H:\全球数据\cleaned_v3\retime\2020-12-27_cleaned_retime.csv',
+    [string]$AISFile = '',
 
     [ValidateSet('observed', 'broadcast', 'received')]
     [string]$Mode = 'received',
@@ -47,6 +47,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectDirectory = Split-Path -Parent $PSScriptRoot
+$AISFile = if ($AISFile) {
+    $AISFile
+} else {
+    Join-Path $ProjectDirectory 'Data\AIS\retime'
+}
 $RuntimeDirectory = Join-Path $ProjectDirectory '.runtime\ais-predict-demo'
 $LogDirectory = Join-Path $RuntimeDirectory 'logs'
 $Python = 'D:\Anaconda3\envs\Predict\python.exe'
@@ -293,8 +298,8 @@ if (-not (Test-Path -LiteralPath $Python)) {
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory 'manage.py'))) {
     throw "Invalid project directory: $ProjectDirectory"
 }
-if (-not (Test-Path -LiteralPath $AISFile -PathType Leaf)) {
-    throw "AIS CSV file not found: $AISFile"
+if (-not (Test-Path -LiteralPath $AISFile)) {
+    throw "AIS CSV file or directory not found: $AISFile"
 }
 if ($SimulationId -match ':') {
     throw "SimulationId cannot contain ':'."

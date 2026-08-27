@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from AISData.ais_simulation import (
     LoadedAISData,
     SimulationConfig,
+    discover_ais_csv_paths,
     iter_simulated_records,
     load_ais_csv,
     nominal_reporting_interval,
@@ -218,6 +219,25 @@ class AISSimulationTests(SimpleTestCase):
         self.assertEqual(len(points), 2)
         self.assertIn("+08:00", points[0]["timestamp"])
 
+    def test_loader_recursively_combines_every_csv_in_a_directory(self):
+        first = self._csv_path()
+        nested = first.parent / "nested"
+        nested.mkdir()
+        second = nested / "second.CSV"
+        second.write_text(first.read_text(encoding="utf-8"), encoding="utf-8")
+        (nested / "ignored.txt").write_text("not AIS", encoding="utf-8")
+
+        loaded = load_ais_csv(
+            first.parent,
+            source_timezone="Asia/Shanghai",
+            duration_minutes=1,
+        )
+
+        self.assertEqual(discover_ais_csv_paths(first.parent), (first, second))
+        self.assertEqual(len(loaded.source_files), 2)
+        self.assertEqual(loaded.source_rows, 4)
+        self.assertEqual(len(loaded.tracks["123456789"]), 2)
+
     def test_command_publishes_only_to_predict_namespace(self):
         merge_ais_state(
             [_point("2026-08-23T00:00:00Z", mmsi="987654321")],
@@ -291,6 +311,10 @@ class AISSimulationTests(SimpleTestCase):
                 call.kwargs["namespace"] == "predict"
                 and call.kwargs["simulation_id"] == "simulation-test"
                 and isinstance(call.kwargs["ship_list"], list)
+                and isinstance(
+                    call.kwargs["incremental_ship_list"],
+                    list,
+                )
                 for call in enqueue_all.call_args_list
             )
         )

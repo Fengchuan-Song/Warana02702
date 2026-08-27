@@ -8,6 +8,7 @@ import uuid
 from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -122,7 +123,15 @@ def _hash(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _normalised_record_data(feature_id, payload, result, detected_at):
+def _normalised_record_data(
+    feature_id,
+    payload,
+    result,
+    detected_at,
+    source_namespace="operational",
+    simulation_id=None,
+    persistence_scope=None,
+):
     target_id = _target_id(result)
     status = _text(result.get("status"), result.get("event"))
     risk = _text(result.get("risk"), result.get("risk_level"))
@@ -132,22 +141,38 @@ def _normalised_record_data(feature_id, payload, result, detected_at):
         result.get("reason"),
         payload.get("message"),
     )
-    event_id = _text(result.get("event_id"), result.get("alert_id"))
+    record_identifier = _text(
+        result.get("prediction_id"),
+        result.get("event_id"),
+        result.get("alert_id"),
+    )
+    signature_data = {
+        "feature_id": feature_id,
+        "target_id": target_id,
+        "status": status,
+        "risk": risk,
+        "zone": _text(result.get("zone"), result.get("area")),
+    }
+    if persistence_scope:
+        signature_data["persistence_scope"] = persistence_scope
     signature = json.dumps(
-        {
-            "feature_id": feature_id,
-            "target_id": target_id,
-            "status": status,
-            "risk": risk,
-            "zone": _text(result.get("zone"), result.get("area")),
-        },
+        signature_data,
         ensure_ascii=False,
         sort_keys=True,
     )
     fingerprint = _hash(signature)
-    event_key = _hash(f"{feature_id}:{event_id}") if event_id else ""
+    event_key_source = f"{feature_id}:{record_identifier}"
+    if persistence_scope:
+        event_key_source = f"{persistence_scope}:{event_key_source}"
+    event_key = (
+        _hash(event_key_source)
+        if record_identifier
+        else ""
+    )
     longitude, latitude = _coordinates(result)
     return {
+        "source_namespace": str(source_namespace or "operational").strip().lower(),
+        "simulation_id": str(simulation_id or "").strip(),
         "event_key": event_key,
         "fingerprint": fingerprint,
         "feature_id": feature_id,
@@ -180,11 +205,8 @@ def _save_one(data, detected_at):
                 .first()
             )
 
-        # event_id is supplied by individual detectors and must not be the
-        # only continuity safeguard for the anchoring detector. Older payloads
-        # derived that ID from a rolling-window start, so adjacent observations
-        # could receive different IDs. Detectors without an event ID retain the
-        # original generic fingerprint-based behaviour.
+        # Keep the anchoring continuity fallback for legacy records created
+        # before the unified prediction_id was added.
         if record is None and (
             not data["event_key"]
             or data["feature_id"] == "detect-illegalAnchored"
@@ -192,6 +214,8 @@ def _save_one(data, detected_at):
             candidates = (
                 ViolationEventRecord.objects.select_for_update()
                 .filter(
+                    source_namespace=data["source_namespace"],
+                    simulation_id=data["simulation_id"],
                     fingerprint=data["fingerprint"],
                     last_detected_at__gte=detected_at - CONTINUOUS_EVENT_GAP,
                     first_detected_at__lte=detected_at + CONTINUOUS_EVENT_GAP,
@@ -285,7 +309,16 @@ def _trajectory_source_points(
             if mmsi in mmsis:
                 points.append((mmsi, item))
 
-    if len(mmsis) == 1 and _coordinates(result) != (None, None):
+    has_timestamped_ais_source = any(
+        _coordinates(item) != (None, None)
+        and _aware_datetime(item.get("timestamp"), item.get("time")) is not None
+        for _, item in points
+    )
+    if (
+        len(mmsis) == 1
+        and not has_timestamped_ais_source
+        and _coordinates(result) != (None, None)
+    ):
         points.append((next(iter(mmsis)), result))
     trajectory_started_at = _aware_datetime(
         result.get("trajectory_started_at")
@@ -494,11 +527,41 @@ def _save_trajectory(
     )
 
 
+def _crossing_retained_event_is_active(result):
+    """Return whether a retained enter event may receive more AIS points."""
+    if result.get("is_new", True):
+        return True
+    if result.get("crossing_direction") != "enter":
+        return False
+
+    fence_id = _text(result.get("fence_id"))
+    mmsis = _target_mmsis(result)
+    if not fence_id or len(mmsis) != 1:
+        return False
+
+    # The crossing detector updates this state before persistence runs.  It
+    # remains authoritative even when an enter-only fence intentionally emits
+    # no result for the later exit transition.
+    from CrossingBoundary.views import CROSSING_STATE_CACHE_KEY
+
+    state = cache.get(CROSSING_STATE_CACHE_KEY, {})
+    if not isinstance(state, dict):
+        return False
+    vessel_state = state.get(f"{fence_id}:{mmsis[0]}")
+    return (
+        isinstance(vessel_state, dict)
+        and vessel_state.get("stable_inside") is True
+    )
+
+
 def persist_detection_payload(
     feature_id,
     payload,
     ais_snapshot=None,
     trajectory_namespace=None,
+    source_namespace="operational",
+    simulation_id=None,
+    persistence_scope=None,
 ):
     """Persist alert results without allowing database errors to stop inference."""
     if not isinstance(payload, dict) or not payload.get("success", True):
@@ -506,6 +569,10 @@ def persist_detection_payload(
     results = payload.get("results")
     if not isinstance(results, list) or not results:
         return []
+    # Crossing results remain in the public payload for a retention window,
+    # but display retention is not an active trajectory lifecycle.  A retained
+    # enter event may append AIS only while detector state is still inside the
+    # same fence. Retained exit/transit events never append post-crossing AIS.
     try:
         if int(payload.get("count", len(results))) <= 0:
             return []
@@ -517,13 +584,42 @@ def persist_detection_payload(
         for result in results:
             if not isinstance(result, dict):
                 continue
+            crossing_retained = (
+                feature_id == "detect-CrossingBoundary"
+                and not result.get("is_new", True)
+            )
+            if (
+                crossing_retained
+                and not _crossing_retained_event_is_active(result)
+            ):
+                continue
             detected_at = _actual_detection_time(
                 result,
                 payload,
                 ais_snapshot,
             )
-            data = _normalised_record_data(feature_id, payload, result, detected_at)
-            record = _save_one(data, detected_at)
+            data = _normalised_record_data(
+                feature_id,
+                payload,
+                result,
+                detected_at,
+                source_namespace=source_namespace,
+                simulation_id=simulation_id,
+                persistence_scope=persistence_scope,
+            )
+            if crossing_retained:
+                # Keep the original occurrence metadata. Retained display
+                # frames are not new detections; they only carry later AIS for
+                # an enter event whose vessel remains inside the fence.
+                record = (
+                    ViolationEventRecord.objects.filter(
+                        event_key=data["event_key"]
+                    ).first()
+                )
+                if record is None:
+                    record = _save_one(data, detected_at)
+            else:
+                record = _save_one(data, detected_at)
             _save_trajectory(
                 record,
                 result,

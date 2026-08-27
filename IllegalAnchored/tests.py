@@ -326,7 +326,7 @@ class IllegalAnchoredDetectorTests(TestCase):
                 )
             self.assertEqual(payload["count"], 0)
 
-    def test_low_speed_underway_status_alerts_after_five_minutes(self):
+    def test_low_speed_underway_status_is_staying_not_anchoring(self):
         start = timezone.now()
         for minutes in (0, 3, 6):
             payload = self._detect(
@@ -335,8 +335,7 @@ class IllegalAnchoredDetectorTests(TestCase):
                 nav_status=0,
             )
 
-        self.assertEqual(payload["count"], 1)
-        self.assertEqual(payload["results"][0]["duration_seconds"], 360)
+        self.assertEqual(payload["count"], 0)
 
     def test_status_zero_large_displacement_resets_episode(self):
         start = timezone.now()
@@ -400,7 +399,7 @@ class IllegalAnchoredDetectorTests(TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["risk"], "高风险")
 
-    def test_outside_known_anchor_in_covered_water_is_screened(self):
+    def test_undefined_status_without_swing_is_not_anchoring(self):
         start = timezone.now()
         point = (114.60, 22.50)
         for minutes in (0, 3, 6):
@@ -410,5 +409,36 @@ class IllegalAnchoredDetectorTests(TestCase):
                 nav_status=15,
             )
 
+        self.assertEqual(payload["count"], 0)
+
+    def test_heading_swing_can_confirm_anchor_without_anchor_status(self):
+        start = timezone.now()
+        for minutes, heading in zip((0, 3, 6), (0, 90, 180)):
+            payload = self._detect(
+                start + timedelta(minutes=minutes),
+                nav_status=15,
+                heading=heading,
+            )
+
         self.assertEqual(payload["count"], 1)
-        self.assertEqual(payload["results"][0]["risk"], "待核查")
+        self.assertEqual(payload["results"][0]["behavior"], "anchoring")
+
+    def test_position_swing_can_confirm_anchor_when_heading_is_missing(self):
+        start = timezone.now()
+        lon, lat = self.prohibited_point
+        positions = [
+            (lon, lat),
+            (lon + 0.0006, lat),
+            (lon, lat),
+            (lon + 0.0006, lat),
+        ]
+        for minutes, point in zip((0, 2, 4, 6), positions):
+            payload = self._detect(
+                start + timedelta(minutes=minutes),
+                point=point,
+                nav_status=15,
+                heading=None,
+            )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertTrue(payload["results"][0]["position_swing"])

@@ -42,7 +42,11 @@ from .ais_state import (
     merge_ais_state,
     save_file_checkpoint,
 )
-from .management.commands.ais_worker import Command
+from .management.commands.ais_worker import (
+    Command,
+    ais_checkpoint_key,
+    discover_ais_csv_files,
+)
 from .maritime_zones import (
     ENCRYPTED_DATASET_PATH,
     ENCRYPTED_FILE_MAGIC,
@@ -171,7 +175,260 @@ class DetectionModelParameterTests(TestCase):
                 "min_observations": 3,
                 "max_drift_metres": 250,
                 "history_window_seconds": 1800,
+                "max_gap_seconds": 300,
+                "min_heading_observations": 2,
+                "anchor_swing_heading_degrees": 45,
+                "min_anchor_status_ratio": 0.6,
             },
+        )
+
+    def test_collection_exposes_low_speed_stationary_parameters(self):
+        response = self.client.get(
+            reverse("detection_model_parameter_collection")
+        )
+
+        configurations = {
+            item["feature_id"]: item
+            for item in response.json()["results"]
+        }
+        configuration = configurations["detect-lowSpeedBoat"]
+        field_keys = {field["key"] for field in configuration["fields"]}
+
+        self.assertTrue(
+            {
+                "stationary_max_speed_knots",
+                "stationary_max_drift_metres",
+                "stationary_minimum_duration_seconds",
+            }.issubset(field_keys)
+        )
+        self.assertEqual(
+            configuration["parameters"]["stationary_max_speed_knots"],
+            0.5,
+        )
+        self.assertEqual(
+            configuration["parameters"]["stationary_max_drift_metres"],
+            50.0,
+        )
+        self.assertEqual(
+            configuration["parameters"]
+            ["stationary_minimum_duration_seconds"],
+            300,
+        )
+
+    def test_collection_exposes_wandering_quality_parameters(self):
+        response = self.client.get(
+            reverse("detection_model_parameter_collection")
+        )
+        configurations = {
+            item["feature_id"]: item
+            for item in response.json()["results"]
+        }
+        configuration = configurations["detect-abnormalWandering"]
+        fields = {field["key"]: field for field in configuration["fields"]}
+
+        self.assertTrue(
+            {
+                "revisit_enabled",
+                "min_leg_distance_metres",
+                "max_valid_speed_knots",
+                "max_jump_speed_knots",
+                "min_jump_distance_metres",
+                "max_gap_minutes",
+                "min_turn_interval_seconds",
+                "monitored_only",
+            }.issubset(fields)
+        )
+        self.assertEqual(fields["revisit_enabled"]["type"], "boolean")
+        self.assertIs(configuration["parameters"]["revisit_enabled"], True)
+        self.assertEqual(fields["monitored_only"]["type"], "boolean")
+        self.assertIs(configuration["parameters"]["monitored_only"], True)
+        for key in (
+            "max_range_metres",
+            "min_path_distance_metres",
+            "min_leg_distance_metres",
+            "grid_size_metres",
+            "min_jump_distance_metres",
+        ):
+            self.assertEqual(fields[key]["step"], 1)
+        self.assertEqual(
+            configuration["parameters"]["min_path_distance_metres"],
+            300,
+        )
+
+    def test_collection_exposes_abnormal_berthing_parameters(self):
+        response = self.client.get(
+            reverse("detection_model_parameter_collection")
+        )
+        configurations = {
+            item["feature_id"]: item
+            for item in response.json()["results"]
+        }
+        configuration = configurations["detect-abnormalStaying"]
+        field_keys = {field["key"] for field in configuration["fields"]}
+
+        self.assertTrue(
+            {
+                "max_speed_knots",
+                "exit_speed_knots",
+                "distance_threshold_metres",
+                "position_exit_radius_metres",
+                "min_duration_minutes",
+                "max_gap_minutes",
+                "near_shore_distance_metres",
+                "max_heading_change_degrees",
+                "min_heading_observations",
+                "anchor_swing_heading_degrees",
+                "legal_max_duration_minutes",
+            }.issubset(field_keys)
+        )
+
+    def test_abnormal_berthing_parameters_apply_at_runtime(self):
+        from AbnormalParking.utils import get_parking_config
+        from AISData.model_parameters import apply_runtime_parameter_override
+
+        parameters = {
+            "max_speed_knots": 0.4,
+            "exit_speed_knots": 0.9,
+            "distance_threshold_metres": 40.0,
+            "position_exit_radius_metres": 90.0,
+            "max_gap_minutes": 12.0,
+            "near_shore_distance_metres": 80.0,
+            "max_heading_change_degrees": 20.0,
+            "min_heading_observations": 3,
+            "anchor_swing_heading_degrees": 50.0,
+            "legal_max_duration_minutes": 120.0,
+        }
+        response = self.client.put(
+            reverse(
+                "detection_model_parameter_detail",
+                args=["detect-abnormalStaying"],
+            ),
+            data=json.dumps({"parameters": parameters}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        with apply_runtime_parameter_override("detect-abnormalStaying"):
+            config = get_parking_config()
+        for key, value in parameters.items():
+            self.assertEqual(config[key], value)
+
+    def test_abnormal_berthing_exit_thresholds_are_validated(self):
+        url = reverse(
+            "detection_model_parameter_detail",
+            args=["detect-abnormalStaying"],
+        )
+        response = self.client.put(
+            url,
+            data=json.dumps(
+                {
+                    "parameters": {
+                        "max_speed_knots": 0.5,
+                        "exit_speed_knots": 0.4,
+                    }
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("退出航速", response.json()["message"])
+
+        response = self.client.put(
+            url,
+            data=json.dumps(
+                {
+                    "parameters": {
+                        "distance_threshold_metres": 50,
+                        "position_exit_radius_metres": 40,
+                    }
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("退出半径", response.json()["message"])
+
+    def test_wandering_quality_parameters_apply_at_runtime(self):
+        from AbnormalWandering.utils import get_wandering_config
+        from AISData.model_parameters import apply_runtime_parameter_override
+
+        parameters = {
+            "revisit_enabled": False,
+            "min_leg_distance_metres": 35.0,
+            "max_valid_speed_knots": 90.0,
+            "max_jump_speed_knots": 70.0,
+            "min_jump_distance_metres": 650.0,
+            "max_gap_minutes": 8.0,
+            "min_turn_interval_seconds": 45.0,
+            "monitored_only": False,
+        }
+        response = self.client.put(
+            reverse(
+                "detection_model_parameter_detail",
+                args=["detect-abnormalWandering"],
+            ),
+            data=json.dumps({"parameters": parameters}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        with apply_runtime_parameter_override("detect-abnormalWandering"):
+            config = get_wandering_config()
+        for key, value in parameters.items():
+            self.assertEqual(config[key], value)
+
+    def test_wandering_revisit_switch_requires_boolean(self):
+        response = self.client.put(
+            reverse(
+                "detection_model_parameter_detail",
+                args=["detect-abnormalWandering"],
+            ),
+            data=json.dumps({"parameters": {"revisit_enabled": 0}}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("必须是布尔值", response.json()["message"])
+
+    def test_model_parameter_page_renders_boolean_control_support(self):
+        response = self.client.get(reverse("model_parameter_page"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "field.type === 'boolean'")
+        self.assertContains(response, "new Option('启用', 'true')")
+
+    def test_low_speed_stationary_parameters_apply_at_runtime(self):
+        from LowSpeed.utils import get_low_speed_config
+        from AISData.model_parameters import apply_runtime_parameter_override
+
+        parameters = {
+            "stationary_max_speed_knots": 0.4,
+            "stationary_max_drift_metres": 75.0,
+            "stationary_minimum_duration_seconds": 420,
+        }
+        response = self.client.put(
+            reverse(
+                "detection_model_parameter_detail",
+                args=["detect-lowSpeedBoat"],
+            ),
+            data=json.dumps({"parameters": parameters}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            DetectionModelConfiguration.objects.get(
+                feature_id="detect-lowSpeedBoat"
+            ).parameters,
+            parameters,
+        )
+        with apply_runtime_parameter_override("detect-lowSpeedBoat"):
+            config = get_low_speed_config()
+        self.assertEqual(config["stationary_max_speed_knots"], 0.4)
+        self.assertEqual(config["stationary_max_drift_metres"], 75.0)
+        self.assertEqual(
+            config["stationary_minimum_duration_seconds"],
+            420,
         )
 
     def test_illegal_anchored_history_window_covers_duration(self):
@@ -649,7 +906,81 @@ class BackendDetectionPipelineTests(TestCase):
 
         self.assertEqual(result["count"], 1)
         self.assertEqual(cached["results"][0]["mmsi"], "123456789")
+        self.assertIs(cached["results"][0]["is_new"], True)
+        self.assertEqual(
+            len(cached["results"][0]["prediction_id"]), 32
+        )
+        self.assertNotIn("event_id", cached["results"][0])
         self.assertIsNotNone(cached["computed_at"])
+
+    def test_backend_runner_marks_continuing_and_reappearing_events(self):
+        payloads = [
+            self.successful_detector(None),
+            self.successful_detector(None),
+            JsonResponse({"success": True, "count": 0, "results": []}),
+            self.successful_detector(None),
+        ]
+
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": lambda request: payloads.pop(0)},
+            clear=True,
+        ), patch("AISData.violation_records.persist_detection_payload"):
+            first = run_detector("detect-test")
+            continuing = run_detector("detect-test")
+            run_detector("detect-test")
+            reappearing = run_detector("detect-test")
+
+        self.assertIs(first["results"][0]["is_new"], True)
+        self.assertIs(continuing["results"][0]["is_new"], False)
+        self.assertIs(reappearing["results"][0]["is_new"], True)
+        self.assertEqual(
+            first["results"][0]["prediction_id"],
+            continuing["results"][0]["prediction_id"],
+        )
+        self.assertNotEqual(
+            continuing["results"][0]["prediction_id"],
+            reappearing["results"][0]["prediction_id"],
+        )
+
+    def test_backend_runner_preserves_detector_event_state(self):
+        calls = 0
+
+        def stateful_detector(request):
+            nonlocal calls
+            calls += 1
+            return JsonResponse(
+                {
+                    "success": True,
+                    "count": 1,
+                    "results": [
+                        {
+                            "mmsi": "123456789",
+                            "event_id": "detector-event-1",
+                            "is_new": calls == 1,
+                        }
+                    ],
+                }
+            )
+
+        with patch.dict(
+            DETECTORS,
+            {"detect-test": stateful_detector},
+            clear=True,
+        ), patch("AISData.violation_records.persist_detection_payload"):
+            first = run_detector("detect-test")
+            result = run_detector("detect-test")
+
+        self.assertIs(first["results"][0]["is_new"], True)
+        self.assertIs(result["results"][0]["is_new"], False)
+        self.assertEqual(
+            first["results"][0]["prediction_id"],
+            result["results"][0]["prediction_id"],
+        )
+        self.assertNotEqual(
+            result["results"][0]["prediction_id"],
+            result["results"][0]["event_id"],
+        )
 
     def test_backend_runner_passes_one_frozen_snapshot(self):
         snapshot = [{"mmsi": "123456789", "timestamp": "snapshot-1"}]
@@ -901,6 +1232,24 @@ class BackendDetectionPipelineTests(TestCase):
         self.assertIn("length", converted)
         self.assertIn("width", converted)
 
+    def test_worker_discovers_all_nested_csv_files_with_distinct_checkpoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "nested"
+            nested.mkdir()
+            first = root / "same.csv"
+            second = nested / "same.csv"
+            ignored = nested / "notes.txt"
+            first.write_text("header\n", encoding="utf-8")
+            second.write_text("header\n", encoding="utf-8")
+            ignored.write_text("not AIS", encoding="utf-8")
+
+            discovered = discover_ais_csv_files(root)
+
+        self.assertEqual(discovered, [second, first])
+        self.assertEqual(ais_checkpoint_key(first, root), "same.csv")
+        self.assertEqual(ais_checkpoint_key(second, root), "nested/same.csv")
+
     def test_missing_ais_names_use_one_system_wide_label(self):
         for value in (
             None,
@@ -1110,6 +1459,56 @@ class BackendDetectionPipelineTests(TestCase):
         connection.set.assert_not_called()
 
     @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_crossing_boundary_prefers_incremental_points_over_snapshot(
+        self,
+        get_connection,
+    ):
+        connection = get_connection.return_value
+        snapshot = [{"mmsi": "111111111", "timestamp": "snapshot"}]
+        incremental = [
+            {"mmsi": "123456789", "timestamp": "incremental"}
+        ]
+
+        queued = enqueue_detection(
+            "detect-CrossingBoundary",
+            ship_list=snapshot,
+            incremental_ship_list=incremental,
+        )
+
+        self.assertTrue(queued)
+        queued_payload = connection.rpush.call_args.args[1]
+        self.assertEqual(json.loads(queued_payload), incremental)
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_trajectory_models_prefer_incremental_points_over_snapshot(
+        self,
+        get_connection,
+    ):
+        connection = get_connection.return_value
+        snapshot = [{"mmsi": "111111111", "timestamp": "snapshot"}]
+        incremental = [
+            {"mmsi": "123456789", "timestamp": "incremental"}
+        ]
+
+        for feature_id in (
+            "detect-smuggling",
+            "detect-abnormalWandering",
+            "detect-deviation",
+            "detect-highSpeedBoat",
+            "detect-lowSpeedBoat",
+        ):
+            with self.subTest(feature_id=feature_id):
+                connection.reset_mock()
+                queued = enqueue_detection(
+                    feature_id,
+                    ship_list=snapshot,
+                    incremental_ship_list=incremental,
+                )
+                self.assertTrue(queued)
+                queued_payload = connection.rpush.call_args.args[1]
+                self.assertEqual(json.loads(queued_payload), incremental)
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
     def test_crossing_boundary_worker_receives_queued_snapshot(
         self,
         get_connection,
@@ -1125,6 +1524,7 @@ class BackendDetectionPipelineTests(TestCase):
             detection_queue_key("detect-CrossingBoundary").encode(),
             json.dumps(snapshot).encode(),
         )
+        connection.pipeline.return_value.execute.return_value = ([], True)
 
         received = wait_for_detection_trigger(
             "detect-CrossingBoundary",
@@ -1133,6 +1533,42 @@ class BackendDetectionPipelineTests(TestCase):
 
         self.assertEqual(received, snapshot)
         connection.delete.assert_not_called()
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_crossing_boundary_worker_batches_incremental_queue_items(
+        self,
+        get_connection,
+    ):
+        connection = get_connection.return_value
+        first = [{"mmsi": "123456789", "timestamp": "first"}]
+        second = [{"mmsi": "123456789", "timestamp": "second"}]
+        third = [{"mmsi": "987654321", "timestamp": "third"}]
+        connection.blpop.return_value = (
+            detection_queue_key("detect-CrossingBoundary").encode(),
+            json.dumps(first).encode(),
+        )
+        connection.pipeline.return_value.execute.return_value = (
+            [json.dumps(second).encode(), json.dumps(third).encode()],
+            True,
+        )
+
+        received = wait_for_detection_trigger(
+            "detect-CrossingBoundary",
+            timeout=1,
+        )
+
+        self.assertEqual(received, first + second + third)
+        pipeline = connection.pipeline.return_value
+        pipeline.lrange.assert_called_once_with(
+            detection_queue_key("detect-CrossingBoundary"),
+            0,
+            98,
+        )
+        pipeline.ltrim.assert_called_once_with(
+            detection_queue_key("detect-CrossingBoundary"),
+            99,
+            -1,
+        )
 
     @patch("AISData.detection_queue.get_detection_queue_connection")
     def test_predict_source_queues_every_model_snapshot(self, get_connection):
@@ -1167,6 +1603,74 @@ class BackendDetectionPipelineTests(TestCase):
         )
         connection.ltrim.assert_called_once()
         connection.set.assert_not_called()
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_predict_blacklist_coalesces_to_latest_snapshot(
+        self,
+        get_connection,
+    ):
+        connection = get_connection.return_value
+        connection.set.return_value = True
+
+        queued = enqueue_detection(
+            "detect-blackList",
+            ship_list=[{"mmsi": "123456789"}],
+            namespace="predict",
+            simulation_id="simulation-1",
+        )
+
+        self.assertTrue(queued)
+        connection.rpush.assert_called_once_with(
+            detection_queue_key(
+                "detect-blackList",
+                "predict",
+                "simulation-1",
+            ),
+            "latest",
+        )
+        connection.ltrim.assert_not_called()
+
+    @patch("AISData.detection_queue.get_detection_queue_connection")
+    def test_blacklist_worker_discards_legacy_replay_backlog(
+        self,
+        get_connection,
+    ):
+        connection = get_connection.return_value
+        oldest = [{"mmsi": "123456789", "timestamp": "oldest"}]
+        newest = [{"mmsi": "123456789", "timestamp": "newest"}]
+        queue_key = detection_queue_key(
+            "detect-blackList",
+            "predict",
+            "simulation-1",
+        )
+        connection.blpop.return_value = (
+            queue_key.encode(),
+            json.dumps(oldest).encode(),
+        )
+        pipeline = connection.pipeline.return_value
+        pipeline.execute.return_value = (
+            [json.dumps(newest).encode()],
+            1,
+            0,
+        )
+
+        received = wait_for_detection_trigger(
+            "detect-blackList",
+            timeout=1,
+            namespace="predict",
+            simulation_id="simulation-1",
+        )
+
+        self.assertEqual(received, newest)
+        pipeline.lrange.assert_called_once_with(queue_key, -1, -1)
+        pipeline.delete.assert_any_call(queue_key)
+        pipeline.delete.assert_any_call(
+            detection_pending_key(
+                "detect-blackList",
+                "predict",
+                "simulation-1",
+            )
+        )
 
 
 @override_settings(
@@ -1245,8 +1749,33 @@ class AISOperationalStateTests(SimpleTestCase):
         )
         ignored = merge_ais_state([older])
         self.assertEqual(ignored.out_of_order, 1)
+        self.assertEqual(ignored.accepted_dynamic, [])
         self.assertEqual(ignored.upserts, [])
         self.assertEqual(ignored.snapshot[0]["lon"], 113.7)
+
+    def test_state_update_returns_every_accepted_dynamic_point_in_order(self):
+        first = self.dynamic("2026-08-22T00:00:00Z", longitude="113.7")
+        second = self.dynamic("2026-08-22T00:00:10Z", longitude="113.8")
+        # Source files can contain interleaved or reverse-ordered rows. The
+        # incremental stream must still be event-time ordered within a batch.
+        update = merge_ais_state([second, first])
+
+        self.assertEqual(
+            [item["timestamp"] for item in update.accepted_dynamic],
+            [first["timestamp"], second["timestamp"]],
+        )
+        self.assertEqual(
+            [item["lon"] for item in update.accepted_dynamic],
+            [113.7, 113.8],
+        )
+
+        older = self.dynamic("2026-08-21T23:59:59Z", longitude="113.6")
+        duplicate = self.dynamic("2026-08-22T00:00:10Z", longitude="113.8")
+        ignored = merge_ais_state([older, duplicate])
+
+        self.assertEqual(ignored.accepted_dynamic, [])
+        self.assertEqual(ignored.out_of_order, 1)
+        self.assertEqual(ignored.duplicate, 1)
 
     def test_delta_removes_targets_outside_event_time_retention(self):
         merge_ais_state(
@@ -1299,6 +1828,40 @@ class AISOperationalStateTests(SimpleTestCase):
         self.assertEqual(len(history), 1)
         self.assertEqual(len(static), 1)
         self.assertEqual(static[0]["name"], "海试一号")
+
+    def test_worker_history_can_feed_every_point_to_incremental_detectors(self):
+        latest, history, static = Command().convert_batch(
+            [
+                {
+                    "timestamp": "2026-08-22T00:00:00Z",
+                    "MMSI": "123456789",
+                    "msg_type": "1",
+                    "longitude": "113.7",
+                    "latitude": "22.4",
+                    "speed": "10",
+                    "course": "90",
+                },
+                {
+                    "timestamp": "2026-08-22T00:00:10Z",
+                    "MMSI": "123456789",
+                    "msg_type": "1",
+                    "longitude": "113.8",
+                    "latitude": "22.4",
+                    "speed": "11",
+                    "course": "91",
+                },
+            ]
+        )
+
+        update = merge_ais_state(history, static)
+
+        self.assertEqual(len(latest), 1)
+        self.assertEqual(len(update.accepted_dynamic), 2)
+        self.assertEqual(
+            [point["lon"] for point in update.accepted_dynamic],
+            [113.7, 113.8],
+        )
+        self.assertEqual(update.snapshot[0]["lon"], 113.8)
 
     def test_file_checkpoint_is_shared_through_cache(self):
         self.assertEqual(load_file_checkpoints(), {})
@@ -1617,9 +2180,407 @@ class ViolationRecordTests(TestCase):
         )
 
         points = list(ViolationAISTrajectoryPoint.objects.all())
-        self.assertEqual(len(points), 2)
+        self.assertEqual(len(points), 1)
         self.assertIn(122.35, [point.longitude for point in points])
         self.assertNotIn(121.50, [point.longitude for point in points])
+
+    def test_detector_result_location_is_not_an_ais_point_when_snapshot_exists(self):
+        payload = self._payload()
+        result = payload["results"][0]
+        result.pop("lon")
+        result.pop("lat")
+        result["location"] = [120.0, 20.0]
+
+        persist_detection_payload(
+            "detect-illegalStaying",
+            payload,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "timestamp": "2026-08-03T04:00:00Z",
+                    "lon": 122.4,
+                    "lat": 29.7,
+                }
+            ],
+        )
+
+        points = list(ViolationAISTrajectoryPoint.objects.all())
+        self.assertEqual(len(points), 1)
+        self.assertAlmostEqual(points[0].longitude, 122.4)
+        self.assertAlmostEqual(points[0].latitude, 29.7)
+
+    def test_retained_crossing_event_appends_real_ais_without_duplicate(self):
+        payload = self._payload()
+        result = payload["results"][0]
+        result.update(
+            {
+                "event": "CrossingBoundary",
+                "event_id": "crossing-boundary:4:413123456:enter:test",
+                "fence_id": 4,
+                "crossing_direction": "enter",
+                "is_new": True,
+                "first_detected_at": "2026-08-03T04:00:00Z",
+            }
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            payload,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.40,
+                    "latitude": 29.70,
+                    "timestamp": "2026-08-03T04:00:00Z",
+                }
+            ],
+        )
+
+        retained = self._payload("2026-08-03T04:01:00Z")
+        retained["results"][0].update(result)
+        retained["results"][0]["is_new"] = False
+        cache.set(
+            "crossing_boundary:state:v1",
+            {"4:413123456": {"stable_inside": True}},
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            retained,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.41,
+                    "latitude": 29.71,
+                    "timestamp": "2026-08-03T04:01:00Z",
+                }
+            ],
+        )
+
+        record = ViolationEventRecord.objects.get()
+        self.assertEqual(record.occurrence_count, 1)
+        points = list(record.ais_trajectory.order_by("observed_at"))
+        self.assertEqual(len(points), 2)
+        self.assertEqual(
+            [(point.longitude, point.latitude) for point in points],
+            [(122.40, 29.70), (122.41, 29.71)],
+        )
+
+    def test_retained_crossing_enter_stops_appending_after_exit(self):
+        payload = self._payload()
+        result = payload["results"][0]
+        result.update(
+            {
+                "event": "CrossingBoundary",
+                "event_id": "crossing-boundary:4:413123456:enter:closed",
+                "fence_id": 4,
+                "crossing_direction": "enter",
+                "is_new": True,
+                "first_detected_at": "2026-08-03T04:00:00Z",
+            }
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            payload,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.40,
+                    "latitude": 29.70,
+                    "timestamp": "2026-08-03T04:00:00Z",
+                }
+            ],
+        )
+
+        retained = self._payload("2026-08-03T04:01:00Z")
+        retained["results"][0].update(result)
+        retained["results"][0]["is_new"] = False
+        cache.set(
+            "crossing_boundary:state:v1",
+            {"4:413123456": {"stable_inside": False}},
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            retained,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.50,
+                    "latitude": 29.80,
+                    "timestamp": "2026-08-03T04:01:00Z",
+                }
+            ],
+        )
+
+        record = ViolationEventRecord.objects.get()
+        self.assertEqual(record.occurrence_count, 1)
+        self.assertEqual(record.ais_trajectory.count(), 1)
+        self.assertAlmostEqual(
+            record.ais_trajectory.get().longitude,
+            122.40,
+        )
+
+    def test_retained_crossing_exit_never_appends_post_exit_ais(self):
+        payload = self._payload()
+        result = payload["results"][0]
+        result.update(
+            {
+                "event": "CrossingBoundary",
+                "event_id": "crossing-boundary:4:413123456:exit:test",
+                "fence_id": 4,
+                "crossing_direction": "exit",
+                "is_new": True,
+                "first_detected_at": "2026-08-03T04:00:00Z",
+            }
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            payload,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.40,
+                    "latitude": 29.70,
+                    "timestamp": "2026-08-03T04:00:00Z",
+                }
+            ],
+        )
+
+        retained = self._payload("2026-08-03T04:01:00Z")
+        retained["results"][0].update(result)
+        retained["results"][0]["is_new"] = False
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            retained,
+            ais_snapshot=[
+                {
+                    "mmsi": "413123456",
+                    "longitude": 122.50,
+                    "latitude": 29.80,
+                    "timestamp": "2026-08-03T04:01:00Z",
+                }
+            ],
+        )
+
+        record = ViolationEventRecord.objects.get()
+        self.assertEqual(record.occurrence_count, 1)
+        self.assertEqual(record.ais_trajectory.count(), 1)
+
+    def test_crossing_trajectory_artifact_command_is_dry_run_by_default(self):
+        payload = self._payload()
+        result = payload["results"][0]
+        result.pop("lon")
+        result.pop("lat")
+        result.pop("timestamp")
+        result.update(
+            {
+                "location": [122.4, 29.7],
+                "event": "CrossingBoundary",
+                "event_id": "crossing-boundary:4:413123456:enter:cleanup",
+                "is_new": True,
+            }
+        )
+        persist_detection_payload(
+            "detect-CrossingBoundary",
+            payload,
+            ais_snapshot=[],
+        )
+        record = ViolationEventRecord.objects.get()
+        ViolationAISTrajectoryPoint.objects.create(
+            event=record,
+            mmsi="413123456",
+            observed_at=parse_datetime("2026-08-03T04:01:00Z"),
+            longitude=122.41,
+            latitude=29.71,
+            raw_data={
+                "mmsi": "413123456",
+                "timestamp": "2026-08-03T04:01:00Z",
+            },
+        )
+
+        output = io.StringIO()
+        call_command("clean_crossing_trajectory_artifacts", stdout=output)
+        self.assertIn("matched=1", output.getvalue())
+        self.assertEqual(ViolationAISTrajectoryPoint.objects.count(), 2)
+
+        with tempfile.TemporaryDirectory() as backup_directory:
+            with self.settings(
+                CROSSING_TRAJECTORY_CLEANUP_BACKUP_DIR=backup_directory
+            ):
+                applied_output = io.StringIO()
+                call_command(
+                    "clean_crossing_trajectory_artifacts",
+                    apply=True,
+                    stdout=applied_output,
+                )
+                self.assertIn("Backup created:", applied_output.getvalue())
+                self.assertEqual(
+                    len(list(Path(backup_directory).glob("*.jsonl"))),
+                    1,
+                )
+        self.assertEqual(ViolationAISTrajectoryPoint.objects.count(), 1)
+        self.assertTrue(
+            ViolationAISTrajectoryPoint.objects.filter(
+                raw_data__timestamp="2026-08-03T04:01:00Z"
+            ).exists()
+        )
+
+    def test_crossing_post_exit_trim_is_dry_run_and_backed_up(self):
+        entered_at = parse_datetime("2026-08-03T04:00:00Z")
+        exited_at = parse_datetime("2026-08-03T04:10:00Z")
+        common = {
+            "fingerprint": "f" * 64,
+            "feature_id": "detect-CrossingBoundary",
+            "event_type": "海上围栏越界船舶检测",
+            "target_id": "413123456",
+            "status": "CrossingBoundary",
+            "first_detected_at": entered_at,
+            "last_detected_at": entered_at,
+        }
+        enter = ViolationEventRecord.objects.create(
+            **common,
+            event_key="a" * 64,
+            event_time=entered_at,
+            raw_data={
+                "mmsi": "413123456",
+                "fence_id": 4,
+                "crossing_direction": "enter",
+            },
+        )
+        exit_record = ViolationEventRecord.objects.create(
+            **{
+                **common,
+                "fingerprint": "e" * 64,
+                "first_detected_at": exited_at,
+                "last_detected_at": exited_at,
+            },
+            event_key="b" * 64,
+            event_time=exited_at,
+            raw_data={
+                "mmsi": "413123456",
+                "fence_id": 4,
+                "crossing_direction": "exit",
+            },
+        )
+        for event, timestamps in (
+            (
+                enter,
+                (
+                    "2026-08-03T04:00:00Z",
+                    "2026-08-03T04:10:00Z",
+                    "2026-08-03T04:11:00Z",
+                ),
+            ),
+            (
+                exit_record,
+                (
+                    "2026-08-03T04:10:00Z",
+                    "2026-08-03T04:11:00Z",
+                ),
+            ),
+        ):
+            for index, timestamp in enumerate(timestamps):
+                ViolationAISTrajectoryPoint.objects.create(
+                    event=event,
+                    mmsi="413123456",
+                    observed_at=parse_datetime(timestamp),
+                    longitude=122.4 + index * 0.01,
+                    latitude=29.7,
+                    raw_data={"timestamp": timestamp},
+                )
+
+        output = io.StringIO()
+        call_command(
+            "trim_crossing_event_trajectories",
+            mmsi=["413123456"],
+            stdout=output,
+        )
+        self.assertIn("matched_points=2", output.getvalue())
+        self.assertEqual(ViolationAISTrajectoryPoint.objects.count(), 5)
+
+        with tempfile.TemporaryDirectory() as backup_directory:
+            with self.settings(
+                CROSSING_TRAJECTORY_CLEANUP_BACKUP_DIR=backup_directory
+            ):
+                applied_output = io.StringIO()
+                call_command(
+                    "trim_crossing_event_trajectories",
+                    mmsi=["413123456"],
+                    apply=True,
+                    stdout=applied_output,
+                )
+            self.assertIn("Deleted post-exit points: 2", applied_output.getvalue())
+            self.assertEqual(
+                len(list(Path(backup_directory).glob("*.jsonl"))),
+                1,
+            )
+        self.assertEqual(ViolationAISTrajectoryPoint.objects.count(), 3)
+
+    def test_historical_records_span_sources_while_map_trajectory_is_isolated(self):
+        payload = self._payload()
+        sources = (
+            ("operational", None, None, 122.1),
+            ("predict", "simulation-1", "predict:simulation-1", 122.2),
+            ("predict", "simulation-2", "predict:simulation-2", 122.3),
+        )
+        for namespace, simulation_id, scope, longitude in sources:
+            persist_detection_payload(
+                "detect-illegalStaying",
+                payload,
+                ais_snapshot=[
+                    {
+                        "mmsi": "413123456",
+                        "timestamp": "2026-08-03T04:00:00Z",
+                        "lon": longitude,
+                        "lat": 29.7,
+                    }
+                ],
+                source_namespace=namespace,
+                simulation_id=simulation_id,
+                persistence_scope=scope,
+            )
+
+        self.assertEqual(ViolationEventRecord.objects.count(), 3)
+        cache.set(
+            ACTIVE_DETECTION_SOURCE_CACHE_KEY,
+            "predict:simulation-1",
+            timeout=None,
+        )
+        list_response = self.client.get(reverse("violation_record_list"))
+        previous_batch_record = ViolationEventRecord.objects.get(
+            source_namespace="predict",
+            simulation_id="simulation-2",
+        )
+        detail_response = self.client.get(
+            reverse(
+                "violation_record_detail",
+                args=(previous_batch_record.id,),
+            )
+        )
+        trajectory_response = self.client.get(
+            reverse("ship_trajectory"),
+            {
+                "mmsi": "413123456",
+                "end": "2026-08-03T05:00:00Z",
+            },
+        )
+
+        self.assertEqual(list_response.json()["count"], 3)
+        self.assertEqual(list_response.json()["statistics"]["total"], 3)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(
+            detail_response.json()["record"]["id"],
+            previous_batch_record.id,
+        )
+        self.assertEqual(trajectory_response.json()["count"], 1)
+        self.assertEqual(
+            trajectory_response.json()["trajectory"][0]["longitude"],
+            122.2,
+        )
+        self.assertTrue(
+            all(
+                "source_namespace" not in item
+                for item in list_response.json()["results"]
+            )
+        )
 
     def test_event_trajectory_start_excludes_motion_before_episode(self):
         append_ais_history(
@@ -1827,6 +2788,134 @@ class ViolationRecordTests(TestCase):
         self.assertEqual(len(payload["trajectory"]), 1)
         self.assertEqual(payload["trajectory"][0]["longitude"], 122.4)
 
+    def test_ship_trajectory_api_filters_points_by_warning_model(self):
+        observed_at = parse_datetime("2026-08-03T04:00:00Z")
+        low_speed = ViolationEventRecord.objects.create(
+            event_key="low-speed-trajectory-filter",
+            fingerprint="low-speed-trajectory-filter",
+            feature_id="detect-lowSpeedBoat",
+            event_type="低速航行预警",
+            target_id="413123456",
+            first_detected_at=observed_at,
+            last_detected_at=observed_at,
+            raw_data={"event_id": "low-speed-event"},
+        )
+        high_speed = ViolationEventRecord.objects.create(
+            event_key="high-speed-trajectory-filter",
+            fingerprint="high-speed-trajectory-filter",
+            feature_id="detect-highSpeedBoat",
+            event_type="高速船舶预警",
+            target_id="413123456",
+            first_detected_at=observed_at,
+            last_detected_at=observed_at,
+            raw_data={"event_id": "high-speed-event"},
+        )
+        ViolationAISTrajectoryPoint.objects.bulk_create(
+            [
+                ViolationAISTrajectoryPoint(
+                    event=low_speed,
+                    mmsi="413123456",
+                    observed_at=observed_at,
+                    longitude=122.4,
+                    latitude=29.7,
+                ),
+                ViolationAISTrajectoryPoint(
+                    event=high_speed,
+                    mmsi="413123456",
+                    observed_at=observed_at + timedelta(minutes=1),
+                    longitude=123.4,
+                    latitude=30.7,
+                ),
+            ]
+        )
+
+        response = self.client.get(
+            reverse("ship_trajectory"),
+            {
+                "mmsi": "413123456",
+                "end": "2026-08-03T05:00:00Z",
+                "feature_id": "detect-lowSpeedBoat",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["feature_id"], "detect-lowSpeedBoat")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["trajectory"][0]["longitude"], 122.4)
+
+    def test_ship_trajectory_api_filters_one_event_without_advancing_end(self):
+        detected_at = parse_datetime("2026-08-03T04:00:00Z")
+        crossing = ViolationEventRecord.objects.create(
+            event_key="crossing-event-trajectory-filter",
+            fingerprint="crossing-event-trajectory-filter",
+            feature_id="detect-CrossingBoundary",
+            event_type="海上围栏越界",
+            target_id="413123456",
+            first_detected_at=detected_at,
+            last_detected_at=detected_at + timedelta(minutes=10),
+            raw_data={"prediction_id": "prediction-crossing-test"},
+        )
+        other_crossing = ViolationEventRecord.objects.create(
+            event_key="other-crossing-event-trajectory-filter",
+            fingerprint="other-crossing-event-trajectory-filter",
+            feature_id="detect-CrossingBoundary",
+            event_type="海上围栏越界",
+            target_id="413123456",
+            first_detected_at=detected_at,
+            last_detected_at=detected_at,
+            raw_data={"prediction_id": "prediction-other-crossing-test"},
+        )
+        ViolationAISTrajectoryPoint.objects.bulk_create(
+            [
+                ViolationAISTrajectoryPoint(
+                    event=crossing,
+                    mmsi="413123456",
+                    observed_at=detected_at,
+                    longitude=122.4,
+                    latitude=29.7,
+                ),
+                ViolationAISTrajectoryPoint(
+                    event=crossing,
+                    mmsi="413123456",
+                    observed_at=detected_at + timedelta(minutes=10),
+                    longitude=122.5,
+                    latitude=29.8,
+                ),
+                ViolationAISTrajectoryPoint(
+                    event=other_crossing,
+                    mmsi="413123456",
+                    observed_at=detected_at + timedelta(minutes=5),
+                    longitude=123.5,
+                    latitude=30.8,
+                ),
+            ]
+        )
+
+        prediction_id = "prediction-crossing-test"
+        response = self.client.get(
+            reverse("ship_trajectory"),
+            {
+                "mmsi": "413123456",
+                # A retained alert keeps this original event time. Event-scoped
+                # lookup still returns the trajectory accumulated while active.
+                "end": "2026-08-03T04:00:00Z",
+                "feature_id": "detect-CrossingBoundary",
+                "prediction_id": prediction_id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["query_scope"], "event")
+        self.assertEqual(payload["prediction_id"], prediction_id)
+        self.assertIsNone(payload["end"])
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            [point["longitude"] for point in payload["trajectory"]],
+            [122.4, 122.5],
+        )
+
     def test_ship_trajectory_api_filters_time_and_supports_path_mmsi(self):
         for timestamp, longitude in (
             ("2026-08-03T04:00:00Z", 122.4),
@@ -1851,8 +2940,9 @@ class ViolationRecordTests(TestCase):
             "2026-08-03T05:00:00+00:00",
         )
 
-    def test_ship_trajectory_api_excludes_points_at_or_after_warning_time(self):
+    def test_ship_trajectory_api_includes_warning_time_and_excludes_after(self):
         self._persist_trajectory_point("2026-08-03T04:00:00Z", 122.4)
+        self._persist_trajectory_point("2026-08-03T04:30:00Z", 122.45)
         self._persist_trajectory_point("2026-08-03T05:00:00Z", 122.5)
 
         response = self.client.get(
@@ -1865,8 +2955,11 @@ class ViolationRecordTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["count"], 1)
-        self.assertEqual(payload["trajectory"][0]["longitude"], 122.4)
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            [point["longitude"] for point in payload["trajectory"]],
+            [122.4, 122.45],
+        )
         self.assertEqual(payload["start"], "2026-08-02T23:30:00+00:00")
         self.assertEqual(payload["end"], "2026-08-03T04:30:00+00:00")
 

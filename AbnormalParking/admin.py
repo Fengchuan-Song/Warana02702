@@ -1,13 +1,6 @@
 from django.contrib import admin
 
-from .models import ParkingBuffer, ParkingMonitorArea
-
-
-@admin.register(ParkingMonitorArea)
-class ParkingMonitorAreaAdmin(admin.ModelAdmin):
-    list_display = ("name", "min_lon", "min_lat", "max_lon", "max_lat", "is_active")
-    list_filter = ("is_active",)
-    search_fields = ("name",)
+from .models import ParkingBuffer
 
 
 @admin.register(ParkingBuffer)

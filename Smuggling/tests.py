@@ -204,6 +204,19 @@ class SmugglingDetectionTests(TestCase):
         self.assertEqual(event["length"], 30.0)
         self.assertIn("风险研判", event["details"])
 
+    def test_one_incremental_batch_preserves_voyage_order(self):
+        payload = self.call(
+            [
+                self.ship(114.05, 22.25, seconds=0),
+                self.ship(114.06, 22.25, seconds=30),
+                self.ship(114.12, 22.25, seconds=60),
+                self.ship(114.19, 22.205, seconds=90),
+            ]
+        )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["new_count"], 1)
+
     def test_confirmed_landing_escalates_risk(self):
         self.establish_departure()
         self.call([self.ship(114.19, 22.205, seconds=90)])

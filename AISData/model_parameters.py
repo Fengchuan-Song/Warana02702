@@ -34,6 +34,19 @@ def _integer(key, label, unit="", minimum=0, maximum=None, help_text=""):
     return field
 
 
+def _boolean(key, label, help_text=""):
+    return {
+        "key": key,
+        "label": label,
+        "type": "boolean",
+        "unit": "开关",
+        "min": None,
+        "max": None,
+        "step": None,
+        "help": help_text,
+    }
+
+
 def _without_configurable_parameters(label, description):
     return {
         "label": label,
@@ -46,28 +59,117 @@ def _without_configurable_parameters(label, description):
 MODEL_PARAMETER_SCHEMAS = {
     "detect-abnormalStaying": {
         "label": "异常停泊预警",
-        "description": "低速目标在监控区域内持续停留的判定阈值。",
+        "description": "使用统一低速行为层识别港池/靠泊设施内异常靠泊，以及AIS停泊状态与实际航行轨迹矛盾。",
         "setting": "ABNORMAL_PARKING",
         "fields": [
             _number("max_speed_knots", "最大停泊航速", "节", 0, 20, 0.1),
-            _number("distance_threshold_metres", "位置聚集半径", "米", 1, 5000, 1),
+            _number("exit_speed_knots", "停泊退出航速", "节", 0, 20, 0.1),
+            _number("distance_threshold_metres", "靠泊位置活动半径", "米", 1, 5000, 1),
+            _number("position_exit_radius_metres", "位置退出半径", "米", 1, 10000, 1),
             _number("min_duration_minutes", "最短持续时间", "分钟", 0, 1440, 1),
             _integer("min_points", "最少轨迹点", "点", 2, 10000),
             _integer("analysis_window_minutes", "分析时间窗口", "分钟", 1, 10080),
+            _number("max_gap_minutes", "轨迹最大时间间隔", "分钟", 0.1, 1440, 0.1),
+            _number(
+                "near_shore_distance_metres",
+                "自然岸线距离（兼容）",
+                "米",
+                1,
+                5000,
+                1,
+                "兼容保留，不再作为靠泊行为证据；靠泊必须位于港池或配置靠泊设施。",
+            ),
+            _number("max_heading_change_degrees", "最大船艏向变化", "度", 0, 180, 1),
+            _integer("min_heading_observations", "最少船艏向样本", "个", 2, 10000),
+            _number("anchor_swing_heading_degrees", "锚泊摆动船艏向阈值", "度", 0, 180, 1),
+            _number("min_anchor_status_ratio", "最小连续锚泊状态占比", "", 0, 1, 0.01),
+            _number("moored_underway_min_speed_knots", "停泊状态异常航行最低航速", "节", 0, 30, 0.1),
+            _number("moored_underway_min_path_distance_metres", "停泊状态异常航行最短航程", "米", 1, 100000, 1),
+            _number("moored_underway_min_duration_minutes", "停泊状态异常航行最短时长", "分钟", 0, 1440, 1),
+            _integer("moored_underway_min_points", "停泊状态异常航行最少点数", "点", 2, 10000),
+            _number("legal_max_duration_minutes", "合法区域允许停泊时长", "分钟", 0, 10080, 1),
         ],
     },
     "detect-abnormalWandering": {
         "label": "异常徘徊预警",
-        "description": "依据轨迹长度、转向次数与位移比识别徘徊行为。",
+        "description": "识别航行状态下在一定水域内持续往复运动的船舶，明显转向为必备条件，位移效率与重复返回作为辅助证据。",
         "setting": "ABNORMAL_WANDERING",
         "fields": [
             _integer("analysis_window_minutes", "分析时间窗口", "分钟", 1, 10080),
             _integer("min_points", "最少轨迹点", "点", 4, 10000),
             _number("min_duration_minutes", "最短持续时间", "分钟", 0, 1440, 1),
-            _number("min_path_distance_metres", "最短轨迹长度", "米", 1, 100000, 10),
+            _number("max_range_metres", "最大活动跨度", "米", 1, 100000, 1),
+            _number("min_path_distance_metres", "最短轨迹长度", "米", 1, 100000, 1),
+            _number(
+                "min_leg_distance_metres",
+                "最小有效航段距离",
+                "米",
+                0,
+                10000,
+                1,
+                "短于该距离的连续定位变化按定位抖动合并，不累计为有效航程。",
+            ),
             _number("min_turn_angle_degrees", "最小转向角", "度", 0, 180, 1),
             _integer("min_turn_count", "最少转向次数", "次", 1, 1000),
             _number("max_displacement_ratio", "最大位移比", "", 0, 1, 0.01),
+            _number("min_revisit_ratio", "最小重复访问率", "", 0, 1, 0.01),
+            _number("grid_size_metres", "重复访问网格边长", "米", 1, 10000, 1),
+            _boolean(
+                "revisit_enabled",
+                "启用重复区域访问特征",
+                "明显转向始终必须达标；启用时再要求低位移效率或重复返回至少一项，关闭时要求低位移效率同时达标。",
+            ),
+            _number("min_speed_knots", "最低有效运动航速", "节", 0, 20, 0.1),
+            _number(
+                "max_valid_speed_knots",
+                "AIS有效航速上限",
+                "节",
+                0,
+                102.2,
+                0.1,
+                "超过该值的SOG按异常数据处理，不参与平均航速和转向过滤。",
+            ),
+            _number(
+                "max_jump_speed_knots",
+                "跳点推算航速上限",
+                "节",
+                1,
+                500,
+                1,
+                "相邻点推算航速超过该值且距离达到跳点最小距离时，按位置跳点处理。",
+            ),
+            _number(
+                "min_jump_distance_metres",
+                "跳点最小距离",
+                "米",
+                1,
+                100000,
+                1,
+                "只有异常航段距离达到该值时才启用跳点过滤，避免短距离定位抖动被误删。",
+            ),
+            _number(
+                "max_gap_minutes",
+                "轨迹最大时间间隔",
+                "分钟",
+                0.1,
+                1440,
+                0.1,
+                "相邻AIS点超过该间隔时切分为不同连续轨迹段。",
+            ),
+            _number(
+                "min_turn_interval_seconds",
+                "转向最小采样间隔",
+                "秒",
+                0,
+                86400,
+                1,
+                "间隔过短的COG样本不重复累计显著转向，用于抑制航向抖动。",
+            ),
+            _boolean(
+                "monitored_only",
+                "仅检测异常徘徊监控区",
+                "启用时只分析监控区内轨迹；停用时对全部有效AIS轨迹运行异常徘徊模型。",
+            ),
         ],
     },
     "detect-abnormalTransfer": {
@@ -166,7 +268,7 @@ MODEL_PARAMETER_SCHEMAS = {
     },
     "detect-lowSpeedBoat": {
         "label": "低速船舶预警",
-        "description": "航行目标持续低于最低航速时触发预警。",
+        "description": "航行目标持续低于最低航速时触发预警，并通过航速、持续时间和漂移距离排除锚泊目标。",
         "setting": "LOW_SPEED_DETECTION",
         "fields": [
             _number("default_minimum_speed_knots", "最低航速", "节", 0, 102.2, 0.1),
@@ -174,11 +276,37 @@ MODEL_PARAMETER_SCHEMAS = {
             _integer("minimum_observations", "最少观测次数", "次", 2, 10000),
             _integer("maximum_gap_seconds", "轨迹最大间隔", "秒", 1, 86400),
             _integer("analysis_window_minutes", "分析时间窗口", "分钟", 1, 10080),
+            _number(
+                "stationary_max_speed_knots",
+                "静止最大航速",
+                "节",
+                0,
+                20,
+                0.1,
+                "连续不超过该航速的轨迹可进入锚泊/静止排除判断。",
+            ),
+            _number(
+                "stationary_max_drift_metres",
+                "静止最大漂移",
+                "米",
+                0,
+                100000,
+                1,
+                "静止期间相对起点的最大允许漂移距离。",
+            ),
+            _integer(
+                "stationary_minimum_duration_seconds",
+                "静止最短持续时间",
+                "秒",
+                0,
+                86400,
+                "达到该持续时间且漂移未超限时按锚泊/静止排除。",
+            ),
         ],
     },
     "detect-illegalAnchored": {
         "label": "非法抛锚预警",
-        "description": "目标在非合法锚地持续低速锚泊的判定参数。",
+        "description": "使用统一低速行为层确认锚泊后，再检查禁锚区和授权锚地。",
         "setting": "ILLEGAL_ANCHORED_DETECTION",
         "fields": [
             _number("max_speed_knots", "最大锚泊航速", "节", 0, 20, 0.1),
@@ -186,11 +314,15 @@ MODEL_PARAMETER_SCHEMAS = {
             _integer("min_observations", "最少观测次数", "次", 2, 10000),
             _number("max_drift_metres", "最大漂移距离", "米", 1, 100000, 1),
             _integer("history_window_seconds", "历史时间窗口", "秒", 1, 604800),
+            _integer("max_gap_seconds", "锚泊轨迹最大间隔", "秒", 1, 86400),
+            _integer("min_heading_observations", "最少船艏向样本", "个", 2, 10000),
+            _number("anchor_swing_heading_degrees", "锚泊摆动船艏向阈值", "度", 0, 180, 1),
+            _number("min_anchor_status_ratio", "最小连续锚泊状态占比", "", 0, 1, 0.01),
         ],
     },
     "detect-illegalStaying": {
         "label": "非法驻留预警",
-        "description": "目标在禁停区域内持续低速驻留的判定参数。",
+        "description": "使用统一低速行为层识别禁停区内普通驻留；锚泊命中禁停区时同时生成独立非法驻留告警。",
         "setting": "ILLEGAL_STAYING",
         "fields": [
             _number("max_speed_knots", "最大驻留航速", "节", 0, 20, 0.1),
@@ -198,6 +330,9 @@ MODEL_PARAMETER_SCHEMAS = {
             _number("min_duration_minutes", "最短持续时间", "分钟", 0, 1440, 1),
             _integer("min_points", "最少轨迹点", "点", 2, 10000),
             _integer("maximum_gap_seconds", "轨迹最大间隔", "秒", 1, 86400),
+            _integer("min_heading_observations", "最少船艏向样本", "个", 2, 10000),
+            _number("anchor_swing_heading_degrees", "锚泊摆动船艏向阈值", "度", 0, 180, 1),
+            _number("min_anchor_status_ratio", "最小连续锚泊状态占比", "", 0, 1, 0.01),
         ],
     },
     "detect-illegalBerthing": {
@@ -252,7 +387,7 @@ def get_schema(feature_id):
     try:
         return MODEL_PARAMETER_SCHEMAS[feature_id]
     except KeyError as exc:
-        raise ValueError("该模型没有可配置的数值参数") from exc
+        raise ValueError("该模型没有可配置参数") from exc
 
 
 def _default_parameters(schema):
@@ -280,6 +415,11 @@ def validate_parameters(feature_id, raw_parameters):
     cleaned = {}
     for key, raw_value in raw_parameters.items():
         field = fields[key]
+        if field["type"] == "boolean":
+            if not isinstance(raw_value, bool):
+                raise ValueError(f"{field['label']}必须是布尔值")
+            cleaned[key] = raw_value
+            continue
         if isinstance(raw_value, bool):
             raise ValueError(f"{field['label']}必须是数字")
         try:
@@ -334,6 +474,14 @@ def validate_parameters(feature_id, raw_parameters):
         < effective["min_duration_seconds"]
     ):
         raise ValueError("历史时间窗口不能短于最短持续时间")
+    if feature_id == "detect-abnormalStaying":
+        if effective["exit_speed_knots"] < effective["max_speed_knots"]:
+            raise ValueError("停泊退出航速不能小于最大停泊航速")
+        if (
+            effective["position_exit_radius_metres"]
+            < effective["distance_threshold_metres"]
+        ):
+            raise ValueError("位置退出半径不能小于靠泊位置活动半径")
     return cleaned
 
 

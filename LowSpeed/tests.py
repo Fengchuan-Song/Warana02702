@@ -38,6 +38,9 @@ TEST_CONFIG = {
     "event_retention_minutes": 10,
     "eligible_nav_statuses": [0, 15],
     "allow_missing_nav_status": True,
+    "stationary_max_speed_knots": 0.5,
+    "stationary_max_drift_metres": 50,
+    "stationary_minimum_duration_seconds": 120,
     "monitored_only": False,
     "zones": [],
 }
@@ -147,6 +150,169 @@ class LowSpeedDetectorTests(TestCase):
         self.assertEqual(result["observation_count"], 5)
         self.assertEqual(result["speed_knots"], 1)
         self.assertTrue(result["is_new"])
+
+    def test_one_incremental_batch_can_establish_low_speed_duration(self):
+        ships = [self.ship(seconds) for seconds in (0, 30, 60, 90, 120)]
+
+        _, payload = self.call_view(ships)
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 120)
+        self.assertEqual(LowSpeedPoint.objects.count(), 5)
+
+    def test_unmodified_active_vessel_is_retained_until_incremental_gap(self):
+        self.feed()
+
+        _, retained = self.call_view(
+            [self.ship(150, speed=2, mmsi="987654321")]
+        )
+        _, expired = self.call_view(
+            [self.ship(180, speed=2, mmsi="987654321")]
+        )
+
+        self.assertEqual(retained["count"], 1)
+        self.assertEqual(retained["results"][0]["mmsi"], "123456789")
+        self.assertFalse(retained["results"][0]["is_new"])
+        self.assertEqual(expired["count"], 0)
+
+    def test_anchor_like_small_drift_does_not_alert_as_low_speed(self):
+        payload = None
+        positions = (
+            (113.41900, 22.19125),
+            (113.41903, 22.19127),
+            (113.41898, 22.19122),
+            (113.41902, 22.19124),
+            (113.41899, 22.19126),
+        )
+        for seconds, (lon, lat) in zip(
+            (0, 30, 60, 90, 120),
+            positions,
+        ):
+            _, payload = self.call_view(
+                [
+                    self.ship(
+                        seconds,
+                        speed=0.4,
+                        lon=lon,
+                        lat=lat,
+                        nav_status=None,
+                    )
+                ]
+            )
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_low_reported_speed_with_large_displacement_still_alerts(self):
+        payload = None
+        for index, seconds in enumerate((0, 30, 60, 90, 120)):
+            _, payload = self.call_view(
+                [
+                    self.ship(
+                        seconds,
+                        speed=0.4,
+                        lon=113.419 + index * 0.001,
+                        lat=22.19125,
+                        nav_status=None,
+                    )
+                ]
+            )
+
+        self.assertEqual(payload["count"], 1)
+
+    def test_leaving_stationary_state_restarts_low_speed_duration(self):
+        for seconds in (0, 30, 60, 90, 120):
+            self.call_view(
+                [self.ship(seconds, speed=0.4, nav_status=None)]
+            )
+        _, immediate = self.call_view(
+            [self.ship(150, speed=1.0, nav_status=None)]
+        )
+
+        self.assertEqual(immediate["count"], 0)
+
+        payload = None
+        for seconds in (180, 210, 240, 270):
+            _, payload = self.call_view(
+                [self.ship(seconds, speed=1.0, nav_status=None)]
+            )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 120)
+
+    def test_moving_nav_status_zero_ship_is_not_cut_off_below_half_knot(self):
+        payload = None
+        positions = (
+            (110.01070, 20.07680),
+            (110.01086, 20.07685),
+            (110.01105, 20.07691),
+            (110.01125, 20.07700),
+            (110.01145, 20.07708),
+        )
+        for seconds, (lon, lat) in zip(
+            (0, 30, 60, 90, 120),
+            positions,
+        ):
+            _, payload = self.call_view(
+                [
+                    self.ship(
+                        seconds,
+                        speed=0.4,
+                        lon=lon,
+                        lat=lat,
+                        nav_status=0,
+                    )
+                ]
+            )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 120)
+
+    def test_anchor_like_nav_status_zero_ship_is_excluded(self):
+        payload = None
+        positions = (
+            (113.41900, 22.19125),
+            (113.41903, 22.19127),
+            (113.41898, 22.19122),
+            (113.41902, 22.19124),
+            (113.41899, 22.19126),
+        )
+        for seconds, (lon, lat) in zip(
+            (0, 30, 60, 90, 120),
+            positions,
+        ):
+            _, payload = self.call_view(
+                [
+                    self.ship(
+                        seconds,
+                        speed=0.1,
+                        lon=lon,
+                        lat=lat,
+                        nav_status=0,
+                    )
+                ]
+            )
+
+        self.assertEqual(payload["count"], 0)
+
+    def test_single_sub_half_knot_sample_does_not_reset_unknown_status(self):
+        speeds = (1.0, 1.0, 0.4, 1.0, 1.0)
+        payload = None
+        for index, (seconds, speed) in enumerate(
+            zip((0, 30, 60, 90, 120), speeds)
+        ):
+            _, payload = self.call_view(
+                [
+                    self.ship(
+                        seconds,
+                        speed=speed,
+                        lon=10 + index * 0.0001,
+                        nav_status=None,
+                    )
+                ]
+            )
+
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["results"][0]["duration_seconds"], 120)
 
     def test_large_ais_gap_breaks_continuity(self):
         payload, _ = self.feed((0, 30, 180, 210, 240))

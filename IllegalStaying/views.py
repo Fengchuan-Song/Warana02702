@@ -10,14 +10,25 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_GET, require_http_methods
 
+from AISData.behavior_recognition import behavior_results_for_request
 from AISData.normalization import normalise_ais_name
-from IllegalAnchored.zones import classify_location
+from AISData.low_speed_behavior import BEHAVIOR_ANCHORING
+from AISData.maritime_zones import (
+    MaritimeZoneDataError,
+    PORT_ZONE_TYPES,
+    zones_containing_point,
+)
+from AISData.monitor_area_geometry import (
+    normalise_polygon_vertices,
+    polygon_bounds,
+    rectangle_vertices,
+)
 
 from .models import IllegalStayingMonitorArea, StayingBuffer
 from .utils import (
-    continuous_staying_event,
     get_forbidden_area,
     get_staying_config,
+    staying_event_from_behavior_result,
 )
 
 
@@ -77,11 +88,20 @@ def _validate_area_data(data, partial=False, instance=None):
         "max_lon": "最大经度",
         "max_lat": "最大纬度",
     }
-    for field in AREA_FIELDS:
-        if field in data:
-            cleaned[field] = _finite_float(data[field], labels[field])
-        elif not partial:
-            raise ValueError(f"{labels[field]}不能为空")
+    vertices_supplied = "vertices" in data
+    if vertices_supplied:
+        vertices = normalise_polygon_vertices(
+            data["vertices"],
+            label="非法驻留监控区",
+        )
+        cleaned["vertices"] = vertices
+        cleaned.update(polygon_bounds(vertices))
+    else:
+        for field in AREA_FIELDS:
+            if field in data:
+                cleaned[field] = _finite_float(data[field], labels[field])
+            elif not partial:
+                raise ValueError(f"{labels[field]}不能为空")
 
     values = {}
     for field in AREA_FIELDS:
@@ -98,6 +118,15 @@ def _validate_area_data(data, partial=False, instance=None):
             raise ValueError("最小经度必须小于最大经度")
         if values["min_lat"] >= values["max_lat"]:
             raise ValueError("最小纬度必须小于最大纬度")
+        if not vertices_supplied and (
+            not partial or any(field in data for field in AREA_FIELDS)
+        ):
+            cleaned["vertices"] = rectangle_vertices(
+                values["min_lon"],
+                values["min_lat"],
+                values["max_lon"],
+                values["max_lat"],
+            )
 
     if "is_active" in data:
         if not isinstance(data["is_active"], bool):
@@ -107,6 +136,12 @@ def _validate_area_data(data, partial=False, instance=None):
 
 
 def _serialize_area(area):
+    vertices = area.vertices or rectangle_vertices(
+        area.min_lon,
+        area.min_lat,
+        area.max_lon,
+        area.max_lat,
+    )
     return {
         "id": area.id,
         "name": area.name,
@@ -116,6 +151,7 @@ def _serialize_area(area):
         "max_lon": area.max_lon,
         "max_lat": area.max_lat,
         "bounds": [area.min_lon, area.min_lat, area.max_lon, area.max_lat],
+        "vertices": vertices,
         "is_active": area.is_active,
         "created_at": area.created_at.isoformat(),
         "updated_at": area.updated_at.isoformat(),
@@ -130,6 +166,12 @@ def _runtime_config():
                 "name": area.name,
                 "reason": area.reason,
                 "bounds": (area.min_lon, area.min_lat, area.max_lon, area.max_lat),
+                "vertices": area.vertices or rectangle_vertices(
+                    area.min_lon,
+                    area.min_lat,
+                    area.max_lon,
+                    area.max_lat,
+                ),
             }
             for area in IllegalStayingMonitorArea.objects.filter(is_active=True)
         ]
@@ -274,6 +316,25 @@ def _normalise_ship(ship_info):
     matched_port_name = str(raw_port_name).strip()
     if matched_port_name.lower() in {"nan", "none", "null"}:
         matched_port_name = ""
+    try:
+        heading = float(ship_info.get("heading"))
+    except (TypeError, ValueError):
+        heading = None
+    if heading is not None and (
+        not math.isfinite(heading) or not 0 <= heading < 360
+    ):
+        heading = None
+    try:
+        nav_status = int(float(ship_info.get("nav_status")))
+    except (TypeError, ValueError):
+        nav_status = None
+    try:
+        in_port_basin = bool(
+            zones_containing_point(lon, lat, zone_types=PORT_ZONE_TYPES)
+        )
+    except MaritimeZoneDataError:
+        in_port_basin = False
+    in_port_basin = in_port_basin or bool(matched_port_name)
 
     return {
         "mmsi": mmsi,
@@ -281,16 +342,13 @@ def _normalise_ship(ship_info):
         "lon": lon,
         "lat": lat,
         "speed": speed,
+        "heading": heading,
+        "nav_status": nav_status,
         "timestamp": timestamp,
         "at_dock": _as_bool(ship_info.get("at_dock", False)),
         "matched_port_name": matched_port_name,
+        "in_port_basin": in_port_basin,
     }
-
-
-def _is_normal_operation(ship):
-    if ship["at_dock"] or ship["matched_port_name"]:
-        return True
-    return classify_location(ship["lon"], ship["lat"])["state"] == "authorized"
 
 
 def _upsert_points(ships):
@@ -303,6 +361,11 @@ def _upsert_points(ships):
             longitude=ship["lon"],
             latitude=ship["lat"],
             speed=ship["speed"],
+            heading=ship["heading"],
+            nav_status=ship["nav_status"],
+            at_dock=ship["at_dock"],
+            matched_port_name=ship["matched_port_name"],
+            in_port_basin=ship["in_port_basin"],
             zone_name=ship["area"]["name"],
             timestamp=ship["timestamp"],
         )
@@ -315,6 +378,11 @@ def _upsert_points(ships):
             "longitude",
             "latitude",
             "speed",
+            "heading",
+            "nav_status",
+            "at_dock",
+            "matched_port_name",
+            "in_port_basin",
             "zone_name",
         ],
     }
@@ -337,6 +405,11 @@ def _load_trajectories(mmsis, start_time, end_time):
             "longitude",
             "latitude",
             "speed",
+            "heading",
+            "nav_status",
+            "at_dock",
+            "matched_port_name",
+            "in_port_basin",
             "zone_name",
             "timestamp",
         )
@@ -404,6 +477,10 @@ def detectIllegalStaying(request):
     reference_time = max(
         ship["timestamp"] for ship in ships_by_mmsi.values()
     )
+    shared_results = behavior_results_for_request(
+        list(ships_by_mmsi.values()),
+        getattr(request, "ais_context", None),
+    )
     candidates = []
     reset_mmsis = []
     stale_count = 0
@@ -420,7 +497,6 @@ def detectIllegalStaying(request):
         )
         if (
             area is None
-            or _is_normal_operation(ship)
             or ship["speed"] > config["max_speed_knots"]
         ):
             reset_mmsis.append(ship["mmsi"])
@@ -444,24 +520,13 @@ def detectIllegalStaying(request):
         reference_time,
         config["event_retention_minutes"],
     )
-    analysis_start = reference_time - timedelta(
-        minutes=config["analysis_window_minutes"]
-    )
-    trajectories = _load_trajectories(
-        [ship["mmsi"] for ship in candidates],
-        analysis_start,
-        reference_time,
-    )
 
     results = []
     active_events = {}
     for ship in candidates:
-        points = [
-            point
-            for point in trajectories.get(ship["mmsi"], [])
-            if point["timestamp"] <= ship["timestamp"]
-        ]
-        event = continuous_staying_event(points, config)
+        event = staying_event_from_behavior_result(
+            shared_results.get(ship["mmsi"]), ship["area"], config
+        )
         if event is None:
             continue
 
@@ -475,6 +540,7 @@ def detectIllegalStaying(request):
             previous is not None
             and previous_last_seen is not None
             and previous.get("zone_name") == ship["area"]["name"]
+            and event["started_at"] <= previous_last_seen
             and ship["timestamp"] >= previous_last_seen
             and (
                 ship["timestamp"] - previous_last_seen
@@ -496,9 +562,15 @@ def detectIllegalStaying(request):
             f"illegal-staying:{ship['mmsi']}:"
             f"{ship['area']['name']}:{started_at}"
         )
+        behavior_label = (
+            "锚泊行为同时命中非法驻留规则"
+            if event["behavior"] == BEHAVIOR_ANCHORING
+            else "普通驻留行为"
+        )
         details = (
             f"疑似非法驻留：{ship['area']['reason']}；"
             f"所在区域：{ship['area']['name']}；"
+            f"行为分类：{behavior_label}；"
             f"航速{ship['speed']:.2f}节，在约"
             f"{config['distance_threshold_metres']:.0f}米范围内已持续"
             f"{duration_minutes:.1f}分钟。"
@@ -521,6 +593,14 @@ def detectIllegalStaying(request):
                 ),
                 "max_speed_knots": round(
                     event["max_speed_knots"], 2
+                ),
+                "behavior": event["behavior"],
+                "behavior_reason": event["behavior_reason"],
+                "position_swing": event["position_swing"],
+                "related_primary_feature_id": (
+                    "detect-illegalAnchored"
+                    if event["behavior"] == BEHAVIOR_ANCHORING
+                    else None
                 ),
                 "event_id": event_id,
                 "is_new": not same_event,
@@ -565,6 +645,15 @@ def detectIllegalStaying(request):
                 "min_points": config["min_points"],
                 "maximum_gap_seconds": config[
                     "maximum_gap_seconds"
+                ],
+                "min_heading_observations": config[
+                    "min_heading_observations"
+                ],
+                "anchor_swing_heading_degrees": config[
+                    "anchor_swing_heading_degrees"
+                ],
+                "min_anchor_status_ratio": config[
+                    "min_anchor_status_ratio"
                 ],
             },
             "message": "检测成功",

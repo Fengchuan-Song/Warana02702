@@ -268,25 +268,31 @@ def detect_high_speed(request):
         return _empty_response()
 
     config = _config()
-    ships_by_mmsi = {}
+    ships_by_key = {}
     skipped_count = 0
     for ship_info in ship_list:
         ship = _normalise_ship(ship_info, config)
         if ship is None:
             skipped_count += 1
             continue
-        previous = ships_by_mmsi.get(ship["mmsi"])
-        if previous is None or ship["timestamp"] > previous["timestamp"]:
-            ships_by_mmsi[ship["mmsi"]] = ship
-    if not ships_by_mmsi:
+        ships_by_key[(ship["mmsi"], ship["timestamp"])] = ship
+    if not ships_by_key:
         return _empty_response(skipped_count=skipped_count)
 
-    reference_time = max(
-        ship["timestamp"] for ship in ships_by_mmsi.values()
+    ships = sorted(
+        ships_by_key.values(),
+        key=lambda ship: (ship["timestamp"], ship["mmsi"]),
     )
-    monitored_ships = []
+    latest_by_mmsi = {}
+    for ship in ships:
+        latest_by_mmsi[ship["mmsi"]] = ship
+
+    reference_time = max(
+        ship["timestamp"] for ship in latest_by_mmsi.values()
+    )
+    monitored_mmsis = set()
     stale_count = 0
-    for ship in ships_by_mmsi.values():
+    for ship in latest_by_mmsi.values():
         if (
             reference_time - ship["timestamp"]
         ).total_seconds() > config["max_position_age_seconds"]:
@@ -296,7 +302,20 @@ def detect_high_speed(request):
             "name": "默认水域",
             "limit": config["default_speed_limit_knots"],
         }
-        monitored_ships.append(ship)
+        monitored_mmsis.add(ship["mmsi"])
+
+    monitored_points = []
+    for ship in ships:
+        if ship["mmsi"] not in monitored_mmsis:
+            continue
+        ship["rule"] = {
+            "name": "默认水域",
+            "limit": config["default_speed_limit_knots"],
+        }
+        monitored_points.append(ship)
+    monitored_ships = [
+        latest_by_mmsi[mmsi] for mmsi in sorted(monitored_mmsis)
+    ]
 
     retention_start = reference_time - timedelta(
         minutes=config["retention_window_minutes"]
@@ -311,20 +330,9 @@ def detect_high_speed(request):
         timestamp__gt=future_limit
     ).delete()
 
-    if not monitored_ships:
-        cache.set(
-            HIGH_SPEED_EVENT_CACHE_KEY,
-            {},
-            timeout=3600,
-        )
-        return _empty_response(
-            timestamp=reference_time,
-            skipped_count=skipped_count,
-            stale_count=stale_count,
-            config=config,
-        )
-
-    _replace_current_points(monitored_ships)
+    # Persist every observation in the incremental batch. Alert output still
+    # represents only the newest point for each vessel.
+    _replace_current_points(monitored_points)
     previous_events = _active_event_state(
         reference_time,
         config["event_retention_minutes"],
@@ -343,9 +351,23 @@ def detect_high_speed(request):
         reference_time,
     )
 
+    processed_mmsis = set(latest_by_mmsi)
     results = []
     active_events = {}
-    timestamp_text = reference_time.isoformat()
+    for mmsi, event in previous_events.items():
+        last_seen = _parse_timestamp(event.get("last_seen"))
+        retained_result = event.get("result")
+        if (
+            mmsi in processed_mmsis
+            or last_seen is None
+            or (reference_time - last_seen).total_seconds()
+            > config["maximum_gap_seconds"]
+            or not isinstance(retained_result, dict)
+        ):
+            continue
+        retained_result = {**retained_result, "is_new": False}
+        active_events[mmsi] = {**event, "result": retained_result}
+        results.append(retained_result)
     for ship in candidate_ships:
         streak = _continuous_high_speed(
             trajectories.get(ship["mmsi"], []),
@@ -397,8 +419,7 @@ def detect_high_speed(request):
             f"已连续超过 {ship['rule']['limit']:.1f} 节"
             f" {duration_seconds / 60:.1f} 分钟。"
         )
-        results.append(
-            {
+        result = {
                 "mmsi": ship["mmsi"],
                 "name": ship["name"],
                 "ship_type": ship["ship_type"],
@@ -428,12 +449,13 @@ def detect_high_speed(request):
                 "details": details,
                 "detail": details,
             }
-        )
+        results.append(result)
         active_events[ship["mmsi"]] = {
             "event_id": event_id,
             "started_at": started_at,
             "speed_limit_knots": ship["rule"]["limit"],
-            "last_seen": timestamp_text,
+            "last_seen": ship["timestamp"].isoformat(),
+            "result": result,
         }
 
     cache.set(
