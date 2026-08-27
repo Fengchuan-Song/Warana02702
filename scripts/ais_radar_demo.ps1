@@ -46,6 +46,10 @@ $DetectionFeatures = @(
     'detect-lowSpeedBoat',
     'detect-smuggling'
 )
+$FusionDetectionFeatures = @(
+    'detect-ais-off',
+    'detect-spoofing'
+)
 
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
 
@@ -175,9 +179,12 @@ function Show-Status {
         'daphne',
         'ais-worker',
         'ais-radar-replay',
+        'jpda-fusion',
         'camera-stream',
         'overload-stream'
-    ) + ($DetectionFeatures | ForEach-Object { "detector-$_" })
+    ) + ($DetectionFeatures | ForEach-Object { "detector-$_" }) + (
+        $FusionDetectionFeatures | ForEach-Object { "detector-$_" }
+    )
     foreach ($processName in $managedNames) {
         $managedProcess = Get-ManagedProcess $processName
         if ($null -eq $managedProcess) {
@@ -198,6 +205,10 @@ if ($Action -eq 'stop') {
     Stop-ManagedProcess 'overload-stream'
     Stop-ManagedProcess 'camera-stream'
     Stop-ManagedProcess 'ais-radar-replay'
+    Stop-ManagedProcess 'jpda-fusion'
+    foreach ($featureId in $FusionDetectionFeatures) {
+        Stop-ManagedProcess "detector-$featureId"
+    }
     Stop-ManagedProcess 'ais-worker'
     foreach ($featureId in $DetectionFeatures) {
         Stop-ManagedProcess "detector-$featureId"
@@ -250,6 +261,10 @@ if ($null -eq $managedDaphne -and (Test-TcpPort $BindAddress $Port)) {
     }
 }
 
+Start-ManagedProcess 'jpda-fusion' $Python @(
+    '-u', 'manage.py', 'jpda_fusion_worker', '--skip-checks'
+) | Out-Null
+
 if ($StartDetectors) {
     Write-Host '[detection] activating operational AIS input'
     & $Python 'manage.py' 'activate_detection_source' `
@@ -261,6 +276,13 @@ if ($StartDetectors) {
     foreach ($featureId in $DetectionFeatures) {
         Start-ManagedProcess "detector-$featureId" $Python @(
             '-u', 'manage.py', 'detection_worker',
+            '--detector', $featureId,
+            '--skip-checks'
+        ) | Out-Null
+    }
+    foreach ($featureId in $FusionDetectionFeatures) {
+        Start-ManagedProcess "detector-$featureId" $Python @(
+            '-u', 'manage.py', 'fusion_detection_worker',
             '--detector', $featureId,
             '--skip-checks'
         ) | Out-Null

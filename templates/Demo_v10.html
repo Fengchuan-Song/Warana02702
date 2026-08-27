@@ -688,7 +688,8 @@
         }
         
         /* 新增：可点击的 MMSI 样式 */
-        .clickable-mmsi {
+        .clickable-mmsi,
+        .clickable-radar-id {
             color: var(--color-warning-yellow); /* 黄色文字 */
             text-decoration: underline; /* 下划线 */
             cursor: pointer;
@@ -698,7 +699,8 @@
             background: transparent;
             font: inherit;
         }
-        .clickable-mmsi:hover {
+        .clickable-mmsi:hover,
+        .clickable-radar-id:hover {
             color: var(--color-primary); /* 悬停时变蓝 */
         }
 
@@ -2123,6 +2125,8 @@
         let operationalAisUpdatedAt = 0;
         let replayAisUpdatedAt = 0;
         let radarData = []; // 最近一帧模拟雷达目标
+        let radarMarkersMap = new Map();
+        let hasFocusedAisRadarReplay = false;
         // let shipMarkers = []; 
         const CRITICAL_ZOOM_LEVEL = 11;
         let shipInfoWindow = null; 
@@ -2351,6 +2355,7 @@
             if (source === 'ais-radar-replay') {
                 replayAisData = snapshot;
                 replayAisUpdatedAt = Date.now();
+                focusAisRadarReplay(snapshot);
             } else {
                 operationalAisByMmsi.clear();
                 snapshot.forEach(ship => {
@@ -2365,6 +2370,91 @@
                     : null;
             }
             refreshCombinedAisData();
+        }
+
+        function focusAisRadarReplay(targets) {
+            if (hasFocusedAisRadarReplay || !map || !Array.isArray(targets)) return;
+            const firstTarget = targets.find(target => {
+                const lon = Number(target && target.lon);
+                const lat = Number(target && target.lat);
+                return Number.isFinite(lon) && Number.isFinite(lat);
+            });
+            if (!firstTarget) return;
+            map.setZoomAndCenter(10, [Number(firstTarget.lon), Number(firstTarget.lat)]);
+            hasFocusedAisRadarReplay = true;
+        }
+
+        function createRadarMarker(radarTarget, isWarning = false) {
+            const radarId = String(radarTarget && radarTarget.id || '').trim();
+            const lon = Number(radarTarget && radarTarget.lon);
+            const lat = Number(radarTarget && radarTarget.lat);
+            if (!map || !radarId || !Number.isFinite(lon) || !Number.isFinite(lat)) {
+                return null;
+            }
+
+            const markerElement = document.createElement('div');
+            markerElement.title = `Radar ${radarId}`;
+            markerElement.style.cssText = [
+                'width:14px',
+                'height:14px',
+                'border-radius:50%',
+                `background:${isWarning ? '#FF4D4F' : '#1E6BFF'}`,
+                'border:2px solid #FFFFFF',
+                `box-shadow:0 0 6px ${isWarning ? 'rgba(255,77,79,.9)' : 'rgba(30,107,255,.9)'}`,
+                'box-sizing:border-box',
+                'cursor:pointer',
+            ].join(';');
+            const marker = new AMap.Marker({
+                map,
+                position: [lon, lat],
+                content: markerElement,
+                offset: new AMap.Pixel(-7, -7),
+                zIndex: isWarning ? 125 : 115,
+                extData: radarTarget,
+            });
+            marker.on('click', () => {
+                openRadarPopup(marker.getExtData() || radarTarget);
+            });
+            radarMarkersMap.set(radarId, marker);
+            return marker;
+        }
+
+        function updateRadarMarkers(rawData) {
+            radarData = Array.isArray(rawData) ? rawData : [];
+            if (!map || typeof AMap === 'undefined') return;
+
+            focusAisRadarReplay(radarData);
+            const activeRadarIds = new Set();
+            radarData.forEach(target => {
+                const radarId = String(target && target.id || '').trim();
+                const lon = Number(target && target.lon);
+                const lat = Number(target && target.lat);
+                if (!radarId || !Number.isFinite(lon) || !Number.isFinite(lat)) return;
+
+                activeRadarIds.add(radarId);
+                let marker = radarMarkersMap.get(radarId);
+                const radarTarget = {
+                    ...target,
+                    id: radarId,
+                    lon,
+                    lat,
+                    source: 'ais-radar-replay-radar',
+                };
+                if (marker) {
+                    marker.setPosition([lon, lat]);
+                    marker.setExtData(radarTarget);
+                    return;
+                }
+
+                createRadarMarker(radarTarget);
+            });
+
+            radarMarkersMap.forEach((marker, radarId) => {
+                if (!activeRadarIds.has(radarId)) {
+                    marker.setMap(null);
+                    radarMarkersMap.delete(radarId);
+                }
+            });
         }
 
         function applyOperationalAisDelta(rawDelta) {
@@ -2421,7 +2511,7 @@
                 } else if (message.type === 'ais_radar_replay_update') {
                     applyAisSourceSnapshot('ais-radar-replay', message.data);
                 } else if (message.type === 'radar_update') {
-                    radarData = Array.isArray(message.data) ? message.data : [];
+                    updateRadarMarkers(message.data);
                 } else if (message.type === 'ais_radar_fusion_update') {
                     if (isAisRadarFusionEnabled()) {
                         applyAisRadarFusionState(message.data || {});
@@ -2828,6 +2918,57 @@
             }, 0);
         }
 
+        function openRadarPopup(radarTarget) {
+            if (!map || !radarTarget) return;
+
+            const radarId = String(
+                radarTarget.radar_id ?? radarTarget.id ?? ''
+            ).trim() || '--';
+            const lon = Number(radarTarget.lon);
+            const lat = Number(radarTarget.lat);
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+
+            const speed = Number(radarTarget.speed ?? radarTarget.sog);
+            const course = Number(radarTarget.course ?? radarTarget.cog);
+            const timestamp = formatFusionTimestamp(
+                radarTarget.timestamp || radarTarget.last_seen || radarTarget.observed_at
+            );
+            const gtid = String(radarTarget.gtid ?? '').trim();
+            const status = String(radarTarget.status ?? '').trim();
+            const risk = String(radarTarget.risk ?? '').trim();
+            const details = String(radarTarget.details ?? '').trim();
+            const warningHtml = (status || risk || details) ? `
+                <p>预警状态: ${escapeHtml(status || '--')}</p>
+                <p>风险等级: ${escapeHtml(risk || '--')}</p>
+                ${details ? `<p>预警说明: ${escapeHtml(details)}</p>` : ''}
+            ` : '';
+
+            const content = `
+                <div class="ship-info-window radar-info-window">
+                    <span class="close-btn" onclick="closeShipPopup()">×</span>
+                    <h4>雷达目标 ${escapeHtml(radarId)}</h4>
+                    <p>Radar Track ID: ${escapeHtml(radarId)}</p>
+                    <p>经纬度: ${lon.toFixed(6)}, ${lat.toFixed(6)}</p>
+                    <p>航速: ${Number.isFinite(speed) ? `${speed.toFixed(1)}节` : '--'}</p>
+                    <p>航向: ${Number.isFinite(course) ? `${course.toFixed(2)}°` : '--'}</p>
+                    <p>更新时间: ${escapeHtml(timestamp || '--')}</p>
+                    ${gtid ? `<p>关联标识: ${escapeHtml(gtid)}</p>` : ''}
+                    ${warningHtml}
+                </div>
+            `;
+
+            if (shipInfoWindow) {
+                shipInfoWindow.close();
+            } else {
+                shipInfoWindow = new AMap.InfoWindow({
+                    isCustom: true,
+                    offset: new AMap.Pixel(0, -30),
+                });
+            }
+            shipInfoWindow.setContent(content);
+            shipInfoWindow.open(map, [lon, lat]);
+        }
+
         function getFeatureTitle(featureId) {
             switch (featureId) {
                 case 'fusion-vis-ais': return '视觉/AIS数据融合';
@@ -2896,12 +3037,18 @@
             return endAt || new Date().toISOString();
         }
 
+        function escapeHtmlAttribute(value) {
+            return escapeHtml(value)
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function buildTargetMmsiHtml(target, featureId) {
             const mmsis = getTargetMmsis(target).filter(mmsi => /^\d{9}$/.test(mmsi));
             if (!mmsis.length) {
                 const radarId = String(target.radar_id || '').trim();
                 return radarId
-                    ? `<span class="radar-target-id">Radar ID: ${escapeHtml(radarId)}</span>`
+                    ? `<button type="button" class="clickable-radar-id" data-radar-id="${escapeHtmlAttribute(radarId)}" data-feature-id="${escapeHtmlAttribute(featureId)}" title="定位雷达目标并显示目标信息">Radar ID: ${escapeHtml(radarId)}</button>`
                     : '<span>无可用目标标识</span>';
             }
             const endAt = getTargetTrajectoryEndAt(featureId, target);
@@ -3102,6 +3249,14 @@
                         button.dataset.endAt,
                         button.dataset.featureId,
                         button.dataset.predictionId
+                    )
+                );
+            });
+            modalDetails.querySelectorAll('.clickable-radar-id').forEach(button => {
+                button.addEventListener('click', () =>
+                    locateRadarTarget(
+                        button.dataset.radarId,
+                        button.dataset.featureId
                     )
                 );
             });
@@ -3747,6 +3902,58 @@
             if (callback && typeof callback === 'function') {
                 callback();
             }
+        }
+
+        function findDetectionRadarTarget(radarId, featureId = 'detect-ais-off') {
+            const normalizedRadarId = String(radarId ?? '').trim();
+            const targets = detectionResults[featureId];
+            if (!normalizedRadarId || !Array.isArray(targets)) return null;
+            return targets.find(
+                target => String(target && target.radar_id || '').trim() === normalizedRadarId
+            ) || null;
+        }
+
+        function locateRadarTarget(radarId, featureId = 'detect-ais-off') {
+            const normalizedRadarId = String(radarId ?? '').trim();
+            const detectionTarget = findDetectionRadarTarget(
+                normalizedRadarId,
+                featureId
+            );
+            const existingMarker = radarMarkersMap.get(normalizedRadarId);
+            const liveTarget = existingMarker && typeof existingMarker.getExtData === 'function'
+                ? existingMarker.getExtData()
+                : null;
+            const detectionLocation = Array.isArray(detectionTarget?.location)
+                ? detectionTarget.location
+                : [];
+            const lon = Number(
+                liveTarget?.lon ?? detectionTarget?.lon ?? detectionLocation[0]
+            );
+            const lat = Number(
+                liveTarget?.lat ?? detectionTarget?.lat ?? detectionLocation[1]
+            );
+
+            if (!normalizedRadarId || !Number.isFinite(lon) || !Number.isFinite(lat)) {
+                window.alert(`未找到雷达目标 ${normalizedRadarId || '--'} 的有效位置`);
+                return;
+            }
+
+            const radarTarget = {
+                ...(detectionTarget || {}),
+                ...(liveTarget || {}),
+                id: normalizedRadarId,
+                radar_id: normalizedRadarId,
+                lon,
+                lat,
+            };
+            if (!existingMarker) {
+                createRadarMarker(radarTarget, true);
+            }
+
+            closeDetailModal();
+            centerShipWithOffsetCorrection(radarTarget, 13, () => {
+                openRadarPopup(radarTarget);
+            });
         }
         
         function normalizeMmsi(value) {

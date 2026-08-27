@@ -21,6 +21,7 @@ from .data import (
 )
 from .matching import decode_hungarian, geometry_guidance, partial_sinkhorn_scores
 from .model import TrajectoryMatchingNet
+from .jpda import JPDAMatcher
 
 
 DEFAULT_CHECKPOINT_SHA256 = "94B1EECE8BA74C603CED986B027CF74753761929389B290AFB4FF2AD8FFA2D4E"
@@ -43,6 +44,14 @@ class InferenceConfig:
     match_threshold: float = 0.0
     sinkhorn_iterations: int = 20
     expected_sha256: str = DEFAULT_CHECKPOINT_SHA256
+    # None derives a causal AIS-age gate as three observed AIS sampling periods.
+    max_ais_time_gap_seconds: Optional[float] = None
+    # Radar is the event-time anchor, so its current measurement has zero age.
+    # Retained as an explicit integration setting for any future radar cache.
+    max_radar_time_gap_seconds: Optional[float] = None
+    # None estimates the extrapolation error from each track's AIS history.
+    ais_prediction_error_rate_mps: Optional[float] = None
+    debug_jpda: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, "checkpoint_path", Path(self.checkpoint_path).resolve())
@@ -94,7 +103,7 @@ def _ground_truth_lookup(radar_data: pd.DataFrame) -> Dict[str, str]:
     return result
 
 
-class AISRadarMatcher:
+class LearnedTrajectoryMatcher:
     """Load the canonical checkpoint once and match uploaded trajectory tables."""
 
     def __init__(self, config: InferenceConfig):
@@ -321,6 +330,12 @@ class AISRadarMatcher:
         return summary
 
 
+# The learned six-frame matcher remains available as ``LearnedTrajectoryMatcher``
+# for offline comparison.  The public/default matcher is the adapted reference
+# method_JPDA implementation below.
+AISRadarMatcher = JPDAMatcher
+
+
 _MATCHERS: Dict[Tuple[Any, ...], AISRadarMatcher] = {}
 _MATCHERS_LOCK = threading.Lock()
 
@@ -334,10 +349,15 @@ def get_matcher(config: InferenceConfig) -> AISRadarMatcher:
         config.match_threshold,
         config.sinkhorn_iterations,
         config.expected_sha256,
+        config.max_ais_time_gap_seconds,
+        config.max_radar_time_gap_seconds,
+        config.ais_prediction_error_rate_mps,
+        config.debug_jpda,
     )
     with _MATCHERS_LOCK:
         matcher = _MATCHERS.get(key)
         if matcher is None:
+            # JPDA AIS-Radar fusion
             matcher = AISRadarMatcher(config)
             _MATCHERS[key] = matcher
         return matcher

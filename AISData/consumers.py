@@ -47,6 +47,7 @@ def load_initial_ais_radar_state():
 class AisConsumer(AsyncWebsocketConsumer):
     # 实时 AIS 数据群组名
     AIS_GROUP_NAME = 'ais_updates'
+    AIS_RADAR_GROUP_NAME = 'ais_radar_replay_updates'
     AIS_NAMESPACE = None
     INCLUDE_AIS_RADAR_REPLAY = True
     AIS_RADAR_REPLAY_AIS_CACHE_KEY = 'latest_ais_radar_replay_ais_data'
@@ -62,6 +63,11 @@ class AisConsumer(AsyncWebsocketConsumer):
             self.AIS_GROUP_NAME,
             self.channel_name
         )
+        if self.INCLUDE_AIS_RADAR_REPLAY:
+            await self.channel_layer.group_add(
+                self.AIS_RADAR_GROUP_NAME,
+                self.channel_name,
+            )
 
         # Redis/Channels groups only deliver future messages. Replay the
         # latest cached AIS state for refreshed or late clients.
@@ -109,6 +115,11 @@ class AisConsumer(AsyncWebsocketConsumer):
             self.AIS_GROUP_NAME,
             self.channel_name
         )
+        if self.INCLUDE_AIS_RADAR_REPLAY:
+            await self.channel_layer.group_discard(
+                self.AIS_RADAR_GROUP_NAME,
+                self.channel_name,
+            )
         print(f"WebSocket disconnected and left group: {self.channel_name}")
 
     # 3. 接收群组消息时（由后台数据生产者调用）
@@ -201,7 +212,7 @@ class PredictAisConsumer(AisConsumer):
 
     AIS_GROUP_NAME = "ais_predict_updates"
     AIS_NAMESPACE = "predict"
-    INCLUDE_AIS_RADAR_REPLAY = False
+    INCLUDE_AIS_RADAR_REPLAY = True
 
 
 class ViolationConsumer(AsyncWebsocketConsumer):

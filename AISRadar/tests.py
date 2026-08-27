@@ -1,4 +1,6 @@
 from pathlib import Path
+from types import SimpleNamespace
+import math
 from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -14,11 +16,14 @@ from .anomaly_detection import (
     publish_fusion_detection_results,
 )
 from .fusion_state import build_fusion_state, clear_fusion_state
+from .fusion_input import get_fusion_input
 from .inference.data import common_timestamps, prepare_window, preprocess_table
 from .inference.matching import decode_hungarian, partial_sinkhorn_scores
 from .inference.predictor import AISRadarMatcher, InferenceConfig, checkpoint_sha256
+from .inference.jpda import JPDAMatcher
 from .management.commands.ais_radar_replay import (
     build_ais_snapshot,
+    build_fusion_rows,
     build_radar_snapshot,
     discover_scene_pairs,
 )
@@ -69,6 +74,75 @@ class MatchingTests(SimpleTestCase):
         matches = decode_hungarian(assignment, 0.0)
         self.assertTrue(torch.isfinite(assignment).all())
         self.assertEqual([(row, col) for row, col, _ in matches], [(0, 0), (1, 1)])
+
+
+class CausalJPDATests(SimpleTestCase):
+    @staticmethod
+    def _matcher(max_gap=10):
+        return JPDAMatcher(
+            SimpleNamespace(
+                max_ais_time_gap_seconds=max_gap,
+                ais_prediction_error_rate_mps=None,
+                debug_jpda=False,
+                device="cpu",
+            )
+        )
+
+    def test_predicts_lagging_ais_to_the_radar_timestamp(self):
+        latitude, longitude = 30.0, 120.0
+        # 10 kn for five seconds moves 25.7222 m east.
+        predicted_longitude = longitude + 25.7222 / (111_320 * math.cos(math.radians(latitude)))
+        ais = pd.DataFrame([{"DateTime": 100, "ID": 413000001, "X": latitude, "Y": longitude, "speed": 10.0, "course": 90.0}])
+        radar = pd.DataFrame([{"DateTime": 105, "ID": "1-1", "X": latitude, "Y": predicted_longitude}])
+
+        result = self._matcher().predict_tables(ais, radar)
+
+        match = result["windows"][0]["matches"][0]
+        self.assertEqual(match["mmsi"], "413000001")
+        self.assertEqual(match["radar_track_id"], "1-1")
+        self.assertEqual(match["dt_seconds"], 5.0)
+        self.assertLess(match["distance_m"], 1.0)
+
+    def test_rejects_stale_or_future_ais_states(self):
+        stale_ais = pd.DataFrame([{"DateTime": 100, "ID": 1, "X": 30.0, "Y": 120.0, "speed": 0, "course": 0}])
+        radar = pd.DataFrame([{"DateTime": 150, "ID": "r", "X": 30.0, "Y": 120.0}])
+        stale_result = self._matcher(max_gap=10).predict_tables(stale_ais, radar)
+        self.assertEqual(stale_result["windows"][0]["matches"], [])
+
+        future_ais = stale_ais.assign(DateTime=160)
+        future_result = self._matcher(max_gap=10).predict_tables(future_ais, radar)
+        self.assertEqual(future_result["windows"][0]["ais_trajectories"], 0)
+        self.assertEqual(future_result["windows"][0]["matches"], [])
+
+    def test_jpda_unmatched_targets_drive_close_ais_and_forgery(self):
+        ais = pd.DataFrame(
+            [
+                {"DateTime": 100, "ID": 413000001, "X": 30.0, "Y": 120.0},
+                {"DateTime": 100, "ID": 413000002, "X": 30.0, "Y": 121.0},
+            ]
+        )
+        radar = pd.DataFrame(
+            [
+                {"DateTime": 100, "ID": "1-1", "X": 30.0, "Y": 120.0},
+                {"DateTime": 100, "ID": "2-1", "X": 30.0, "Y": 122.0},
+            ]
+        )
+
+        jpda_result = self._matcher().predict_tables(ais, radar)
+        fusion_state = build_fusion_state(jpda_result)
+        detections = build_fusion_detection_results(fusion_state)
+
+        self.assertEqual(fusion_state["association_method"], "JPDA AIS-Radar fusion")
+        self.assertEqual(
+            [item["radar_id"] for item in detections["detect-ais-off"]["results"]],
+            ["2-1"],
+        )
+        self.assertEqual(
+            [item["mmsi"] for item in detections["detect-spoofing"]["results"]],
+            ["413000002"],
+        )
+        for payload in detections.values():
+            self.assertEqual(payload["association_method"], "JPDA AIS-Radar fusion")
 
 
 class CheckpointSmokeTests(SimpleTestCase):
@@ -216,11 +290,14 @@ class RealtimeReplayTests(SimpleTestCase):
 
         ais_snapshot = build_ais_snapshot(ais_frame, timestamp)
         radar_snapshot = build_radar_snapshot(radar_frame, timestamp)
+        fusion_rows = build_fusion_rows(ais_frame, timestamp)
 
         self.assertEqual(ais_snapshot[0]["mmsi"], "413123456")
         self.assertEqual(ais_snapshot[0]["lon"], 122.4)
         self.assertEqual(radar_snapshot[0]["id"], "1-1")
         self.assertEqual(radar_snapshot[0]["gtid"], "413123456")
+        self.assertEqual(fusion_rows[0]["ID"], "413123456")
+        self.assertEqual(fusion_rows[0]["DateTime"], timestamp.isoformat())
 
     def test_replay_keeps_operational_ais_cache_and_event_separate(self):
         class RecordingChannelLayer:
@@ -240,8 +317,7 @@ class RealtimeReplayTests(SimpleTestCase):
             "08",
             pairs["08"],
             channel_layer,
-            matcher=None,
-            options={"max_frames": 1, "interval": 0},
+            options={"max_frames": 4, "interval": 0},
         )
 
         self.assertEqual(
@@ -249,7 +325,32 @@ class RealtimeReplayTests(SimpleTestCase):
             [{"mmsi": "operational"}],
         )
         self.assertTrue(cache.get(AisConsumer.AIS_RADAR_REPLAY_AIS_CACHE_KEY))
+        fusion_input = get_fusion_input()
+        self.assertEqual(fusion_input["scene_id"], "08")
+        self.assertTrue(fusion_input["ais_rows"])
+        self.assertTrue(fusion_input["radar_event"])
+        jpda_result = JPDAMatcher(
+            SimpleNamespace(
+                max_ais_time_gap_seconds=10,
+                max_radar_time_gap_seconds=None,
+                ais_prediction_error_rate_mps=None,
+                debug_jpda=False,
+                device="cpu",
+            )
+        ).predict_tables(
+            pd.DataFrame(fusion_input["ais_rows"]),
+            pd.DataFrame(fusion_input["radar_rows"]),
+        )
+        self.assertEqual(
+            jpda_result["model"]["algorithm"],
+            "JPDA AIS-Radar fusion",
+        )
         event_types = [event["type"] for _, event in channel_layer.events]
+        event_groups = {group for group, _ in channel_layer.events}
         self.assertIn("send_ais_radar_replay_update", event_types)
         self.assertIn("send_radar_update", event_types)
+        self.assertEqual(
+            event_groups,
+            {AisConsumer.AIS_RADAR_GROUP_NAME},
+        )
         self.assertNotIn("send_ais_update", event_types)

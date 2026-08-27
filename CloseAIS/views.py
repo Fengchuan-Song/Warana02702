@@ -53,6 +53,7 @@ def detect_close_ais(fusion_state):
     return {
         "success": True,
         "feature_id": FEATURE_ID,
+        "association_method": fusion_state.get("association_method"),
         "timestamp": source_time,
         "computed_at": timezone.now().isoformat(),
         "count": len(results),

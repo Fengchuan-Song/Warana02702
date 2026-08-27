@@ -38,6 +38,10 @@ def _options():
         "match_threshold": 0.0,
         "sinkhorn_iterations": 20,
         "expected_sha256": DEFAULT_CHECKPOINT_SHA256,
+        "max_ais_time_gap_seconds": None,
+        "max_radar_time_gap_seconds": None,
+        "ais_prediction_error_rate_mps": None,
+        "debug_jpda": False,
     }
     defaults.update(getattr(settings, "AIS_RADAR_INFERENCE", {}))
     return defaults
@@ -55,6 +59,10 @@ def _config():
         match_threshold=float(options["match_threshold"]),
         sinkhorn_iterations=int(options["sinkhorn_iterations"]),
         expected_sha256=str(options.get("expected_sha256") or ""),
+        max_ais_time_gap_seconds=options.get("max_ais_time_gap_seconds"),
+        max_radar_time_gap_seconds=options.get("max_radar_time_gap_seconds"),
+        ais_prediction_error_rate_mps=options.get("ais_prediction_error_rate_mps"),
+        debug_jpda=bool(options.get("debug_jpda", False)),
     )
 
 

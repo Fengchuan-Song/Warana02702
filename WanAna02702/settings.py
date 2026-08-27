@@ -502,8 +502,8 @@ LOW_SPEED_DETECTION = {
     "zones": [],
 }
 
-# AIS/Radar six-frame GMvA trajectory matching.  The model is loaded lazily on
-# the first /AISRadar/match/ request and then reused by the Django process.
+# AIS/Radar causal JPDA association.  The maximum AIS age defaults to three
+# observed AIS sampling periods, avoiding a fixed assumption about feed rate.
 AIS_RADAR_INFERENCE = {
     "weights": BASE_DIR / "AISRadar" / "weights" / "mainline_seed42_epoch40.pth",
     "device": "auto",
@@ -512,6 +512,12 @@ AIS_RADAR_INFERENCE = {
     "match_threshold": 0.0,
     "sinkhorn_iterations": 20,
     "expected_sha256": "94B1EECE8BA74C603CED986B027CF74753761929389B290AFB4FF2AD8FFA2D4E",
+    "max_ais_time_gap_seconds": None,
+    # The current Radar observation is always the event-time anchor (age=0).
+    "max_radar_time_gap_seconds": None,
+    # None uses each track's observed dead-reckoning residual as prediction noise.
+    "ais_prediction_error_rate_mps": None,
+    "debug_jpda": False,
 }
 
 # 航道偏离：历史航迹仅覆盖琼州海峡知识库范围，区域外不执行检测。

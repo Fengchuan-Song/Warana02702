@@ -35,6 +35,19 @@ param(
 
     [bool]$StartDetectors = $true,
 
+    # Run the JPDA AIS/Radar matcher and replay its paired scene data alongside
+    # the normal Predict AIS simulator.  The matcher is loaded by this worker.
+    [bool]$StartAISRadarReplay = $true,
+
+    [string]$AISRadarDataDir = '',
+
+    [string]$AISRadarScene = '08',
+
+    [ValidateRange(0, 3600)]
+    [double]$AISRadarInterval = 60,
+
+    [bool]$AISRadarLoop = $true,
+
     [string]$SimulationId = '',
 
     [string]$BindAddress = '0.0.0.0',
@@ -51,6 +64,11 @@ $AISFile = if ($AISFile) {
     $AISFile
 } else {
     Join-Path $ProjectDirectory 'Data\AIS\retime'
+}
+$AISRadarDataDir = if ($AISRadarDataDir) {
+    $AISRadarDataDir
+} else {
+    Join-Path $ProjectDirectory 'Data\AIS-Rdar'
 }
 $RuntimeDirectory = Join-Path $ProjectDirectory '.runtime\ais-predict-demo'
 $LogDirectory = Join-Path $RuntimeDirectory 'logs'
@@ -73,6 +91,10 @@ $DetectionFeatures = @(
     'detect-illegalStaying',
     'detect-lowSpeedBoat',
     'detect-smuggling'
+)
+$FusionDetectionFeatures = @(
+    'detect-ais-off',
+    'detect-spoofing'
 )
 
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
@@ -234,8 +256,15 @@ function Get-BrowserAddress {
 function Show-Status {
     $redisStatus = if (Test-Redis) { 'running' } else { 'stopped' }
     Write-Host "[redis] $redisStatus"
-    $managedNames = @('daphne', 'ais-simulator') + (
+    $managedNames = @(
+        'daphne',
+        'ais-simulator',
+        'ais-radar-replay',
+        'jpda-fusion'
+    ) + (
         $DetectionFeatures | ForEach-Object { "detector-$_" }
+    ) + (
+        $FusionDetectionFeatures | ForEach-Object { "detector-$_" }
     )
     foreach ($processName in $managedNames) {
         $managedProcess = Get-ManagedProcess $processName
@@ -266,6 +295,11 @@ if ($Action -eq 'status') {
 }
 
 if ($Action -eq 'stop') {
+    Stop-ManagedProcess 'ais-radar-replay'
+    Stop-ManagedProcess 'jpda-fusion'
+    foreach ($featureId in $FusionDetectionFeatures) {
+        Stop-ManagedProcess "detector-$featureId"
+    }
     Stop-ManagedProcess 'ais-simulator'
     foreach ($featureId in $DetectionFeatures) {
         Stop-ManagedProcess "detector-$featureId"
@@ -300,6 +334,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory 'manage.py'))) {
 }
 if (-not (Test-Path -LiteralPath $AISFile)) {
     throw "AIS CSV file or directory not found: $AISFile"
+}
+if ($StartAISRadarReplay -and -not (Test-Path -LiteralPath $AISRadarDataDir)) {
+    throw "AIS/Radar replay data directory not found: $AISRadarDataDir"
 }
 if ($SimulationId -match ':') {
     throw "SimulationId cannot contain ':'."
@@ -386,6 +423,12 @@ if (-not $SimulationId) {
     [System.Text.UTF8Encoding]::new($false)
 )
 
+if ($StartAISRadarReplay) {
+    Start-ManagedProcess 'jpda-fusion' $Python @(
+        '-u', 'manage.py', 'jpda_fusion_worker', '--skip-checks'
+    ) | Out-Null
+}
+
 if ($StartDetectors) {
     Write-Host "[detection] activating Predict source: $SimulationId"
     & $Python 'manage.py' 'activate_detection_source' `
@@ -404,6 +447,15 @@ if ($StartDetectors) {
             '--simulation-id', $SimulationId,
             '--skip-checks'
         ) | Out-Null
+    }
+    if ($StartAISRadarReplay) {
+        foreach ($featureId in $FusionDetectionFeatures) {
+            Start-ManagedProcess "detector-$featureId" $Python @(
+                '-u', 'manage.py', 'fusion_detection_worker',
+                '--detector', $featureId,
+                '--skip-checks'
+            ) | Out-Null
+        }
     }
 }
 
@@ -441,14 +493,35 @@ Start-ManagedProcess `
     $Python `
     $simulatorArguments | Out-Null
 
+if ($StartAISRadarReplay) {
+    # Sensor playback is intentionally separate from JPDA and alert workers.
+    $aisRadarReplayArguments = @(
+        '-u', 'manage.py', 'ais_radar_replay',
+        '--data-dir', (ConvertTo-CommandLineArgument $AISRadarDataDir),
+        '--scene', $AISRadarScene,
+        '--interval', $AISRadarInterval.ToString($invariant),
+        '--skip-checks'
+    )
+    if ($AISRadarLoop) {
+        $aisRadarReplayArguments += '--loop'
+    }
+    Start-ManagedProcess `
+        'ais-radar-replay' `
+        $Python `
+        $aisRadarReplayArguments | Out-Null
+}
+
 $browserAddress = Get-BrowserAddress
 $predictUrl = "http://$browserAddress`:$Port/"
 Write-Host ''
 Write-Host "Predict AIS simulation: $predictUrl" -ForegroundColor Cyan
 Write-Host "Source: $AISFile"
 Write-Host "Mode: $Mode; speed factor: $SpeedFactor"
+Write-Host "AIS/Radar sensor replay: $StartAISRadarReplay; scene: $AISRadarScene; interval: $AISRadarInterval s"
+Write-Host "JPDA fusion worker: $StartAISRadarReplay"
 Write-Host "Simulation ID: $SimulationId"
 Write-Host "Detection models: $StartDetectors"
+Write-Host "Fusion alert models (CloseAIS/Forgery): $($StartDetectors -and $StartAISRadarReplay)"
 Write-Host "Status: & '$PSCommandPath' status"
 Write-Host "Stop: & '$PSCommandPath' stop"
 Write-Host `

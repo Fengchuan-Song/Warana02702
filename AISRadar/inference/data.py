@@ -82,7 +82,7 @@ def preprocess_table(data: pd.DataFrame, source_label: str) -> pd.DataFrame:
     prepared["DateTime"] = parse_datetime_column(prepared["DateTime"])
     for column in TRAJECTORY_COLUMNS:
         prepared[column] = pd.to_numeric(prepared[column], errors="coerce")
-    prepared = prepared.dropna(subset=["DateTime", "ID"])
+    prepared = prepared.dropna(subset=["DateTime", "ID", *TRAJECTORY_COLUMNS])
     if prepared.empty:
         raise DataValidationError(f"{source_label} contains no valid timestamp/ID rows.")
     return prepared.sort_values(["DateTime", "ID"]).reset_index(drop=True)

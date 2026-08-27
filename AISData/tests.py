@@ -671,6 +671,11 @@ class RealtimeConsumerSeparationTests(SimpleTestCase):
         with self.settings(AIS_DEFAULT_SOURCE="predict"):
             self.assertIs(default_ais_consumer(), PredictAisConsumer)
         self.assertEqual(PredictAisConsumer.AIS_NAMESPACE, "predict")
+        self.assertTrue(PredictAisConsumer.INCLUDE_AIS_RADAR_REPLAY)
+        self.assertEqual(
+            PredictAisConsumer.AIS_RADAR_GROUP_NAME,
+            "ais_radar_replay_updates",
+        )
         self.assertEqual(ViolationConsumer.GROUP_NAME, "violation_updates")
         self.assertFalse(hasattr(AisConsumer, "send_detection_update"))
 

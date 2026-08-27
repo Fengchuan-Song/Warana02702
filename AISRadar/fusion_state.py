@@ -20,6 +20,7 @@ def _empty_state() -> Dict[str, Any]:
         "updated_at": None,
         "source_start_time": None,
         "source_end_time": None,
+        "association_method": None,
         "count": 0,
         "ais_ids": [],
         "radar_ids": [],
@@ -42,6 +43,7 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
     """Build a UI snapshot from the most recent inference window only."""
     windows = result.get("windows") or []
     latest_window = windows[-1] if windows else {}
+    model = result.get("model") or {}
     matches = []
 
     def normalise_targets(field_name):
@@ -77,6 +79,7 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": timezone.now().isoformat(),
         "source_start_time": latest_window.get("start_time"),
         "source_end_time": latest_window.get("end_time"),
+        "association_method": model.get("algorithm"),
         "count": len(matches),
         "ais_ids": sorted({item["ais_id"] for item in matches}),
         "radar_ids": sorted({item["radar_id"] for item in matches}),

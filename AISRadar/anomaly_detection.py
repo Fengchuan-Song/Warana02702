@@ -15,35 +15,43 @@ from Forgery.views import detect_forgery
 
 
 LOGGER = logging.getLogger(__name__)
+FUSION_DETECTORS = {
+    "detect-ais-off": detect_close_ais,
+    "detect-spoofing": detect_forgery,
+}
 
 
 def build_fusion_detection_results(fusion_state):
     return {
-        "detect-ais-off": detect_close_ais(fusion_state),
-        "detect-spoofing": detect_forgery(fusion_state),
+        feature_id: detector(fusion_state)
+        for feature_id, detector in FUSION_DETECTORS.items()
     }
 
 
-def publish_fusion_detection_results(fusion_state, channel_layer=None):
-    """Cache and broadcast CloseAIS/Forgery results from one fusion window."""
-    payloads = build_fusion_detection_results(fusion_state)
+def publish_fusion_detection_result(feature_id, fusion_state, channel_layer=None):
+    """Publish one detector that consumes an AIS/Radar fusion snapshot."""
+    try:
+        detector = FUSION_DETECTORS[feature_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown fusion detector: {feature_id}") from exc
+
+    payload = detector(fusion_state)
     timeout = getattr(settings, "CACHE_TTL", 300)
-    for feature_id, payload in payloads.items():
-        try:
-            previous_payload = cache.get(detection_cache_key(feature_id))
-            annotate_new_results(feature_id, payload, previous_payload)
-            cache.set(detection_cache_key(feature_id), payload, timeout=timeout)
-            persist_detection_payload(
-                feature_id,
-                payload,
-                ais_snapshot=fusion_state.get("unmatched_ais_targets") or [],
-            )
-        except Exception:
-            LOGGER.warning(
-                "Could not cache or persist %s fusion detection",
-                feature_id,
-                exc_info=True,
-            )
+    try:
+        previous_payload = cache.get(detection_cache_key(feature_id))
+        annotate_new_results(feature_id, payload, previous_payload)
+        cache.set(detection_cache_key(feature_id), payload, timeout=timeout)
+        persist_detection_payload(
+            feature_id,
+            payload,
+            ais_snapshot=fusion_state.get("unmatched_ais_targets") or [],
+        )
+    except Exception:
+        LOGGER.warning(
+            "Could not cache or persist %s fusion detection",
+            feature_id,
+            exc_info=True,
+        )
 
     if channel_layer is None:
         channel_layer = get_channel_layer()
@@ -53,9 +61,21 @@ def publish_fusion_detection_results(fusion_state, channel_layer=None):
                 ViolationConsumer.GROUP_NAME,
                 {
                     "type": "send_detection_update",
-                    "results": payloads,
+                    "results": {feature_id: payload},
                 },
             )
         except Exception:
-            LOGGER.warning("Could not broadcast fusion detections", exc_info=True)
-    return payloads
+            LOGGER.warning("Could not broadcast fusion detection", exc_info=True)
+    return payload
+
+
+def publish_fusion_detection_results(fusion_state, channel_layer=None):
+    """Cache and broadcast CloseAIS/Forgery results from one fusion window."""
+    return {
+        feature_id: publish_fusion_detection_result(
+            feature_id,
+            fusion_state,
+            channel_layer=channel_layer,
+        )
+        for feature_id in FUSION_DETECTORS
+    }
