@@ -16,6 +16,9 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# An imported 5 MB spreadsheet may expand into a larger JSON preview payload.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
@@ -92,6 +95,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "AISData.maritime_zone_registry.MaritimeZoneSnapshotMiddleware",
 ]
 
 ROOT_URLCONF = "WanAna02702.urls"

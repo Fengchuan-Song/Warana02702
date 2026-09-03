@@ -32,9 +32,9 @@ ENCRYPTED_FILE_NONCE_SIZE = 12
 ENCRYPTED_FILE_AAD = b"WanAna02702:maritime_zones:v1"
 POLYGON_NUMBER_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
 SUPPORTED_ZONE_TYPES = frozenset(
-    {"PRT", "ANC", "LIQ", "GCO", "DRY", "CTR", "GAS", "ROR", "PAX"}
+    {"PRT", "ANC", "BTH", "LIQ", "GCO", "DRY", "CTR", "GAS", "ROR", "PAX"}
 )
-PORT_ZONE_TYPES = frozenset({"PRT", "LIQ", "GCO", "DRY", "CTR", "GAS", "ROR", "PAX"})
+PORT_ZONE_TYPES = frozenset({"PRT", "BTH", "LIQ", "GCO", "DRY", "CTR", "GAS", "ROR", "PAX"})
 ANCHORAGE_ZONE_TYPES = frozenset({"ANC"})
 
 
@@ -105,6 +105,10 @@ class MaritimeZone:
     points: tuple[tuple[float, float], ...]
     bounds: tuple[float, float, float, float]
     area: float
+    is_active: bool = True
+    source: str = "bundled"
+    circle_center: tuple | None = None
+    circle_radius_m: float | None = None
 
     @property
     def region(self):
@@ -112,7 +116,7 @@ class MaritimeZone:
             return "香港"
         if self.locode.startswith("MO"):
             return "澳门"
-        return "广东"
+        return "广东" if self.locode.startswith("CN") else self.locode[:2]
 
     def as_geojson_feature(self):
         coordinates = list(self.points)
@@ -128,6 +132,8 @@ class MaritimeZone:
                 "locode": self.locode,
                 "zone_type": self.zone_type,
                 "region": self.region,
+                "is_active": self.is_active,
+                "source": self.source,
             },
             "geometry": {
                 "type": "Polygon",
@@ -241,6 +247,8 @@ def point_in_polygon(longitude, latitude, points):
 
 
 def get_maritime_zones(zone_types=None, locodes=None):
+    from .maritime_zone_registry import get_zone_snapshot
+
     zone_types = (
         {str(value).strip().upper() for value in zone_types}
         if zone_types
@@ -253,8 +261,9 @@ def get_maritime_zones(zone_types=None, locodes=None):
     )
     return tuple(
         zone
-        for zone in load_maritime_zones()
-        if (zone_types is None or zone.zone_type in zone_types)
+        for zone in get_zone_snapshot()["zones"]
+        if zone.is_active
+        and (zone_types is None or zone.zone_type in zone_types)
         and (locodes is None or zone.locode in locodes)
     )
 
@@ -278,7 +287,13 @@ def zones_containing_point(longitude, latitude, zone_types=None):
             and min_lat <= latitude <= max_lat
         ):
             continue
-        if point_in_polygon(longitude, latitude, zone.points):
+        if zone.circle_center is not None:
+            from IllegalAnchored.zones import distance_m
+
+            inside = distance_m(longitude, latitude, *zone.circle_center) <= zone.circle_radius_m
+        else:
+            inside = point_in_polygon(longitude, latitude, zone.points)
+        if inside:
             matches.append(zone)
     return tuple(sorted(matches, key=lambda zone: (zone.area, zone.source_id)))
 

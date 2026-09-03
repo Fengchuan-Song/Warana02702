@@ -256,7 +256,7 @@ def _near_fixed_facility(point, config):
         port_matches = ()
     if port_matches:
         port = port_matches[0]
-        return True, 0.0, port.name or port.description or "港池/码头区", False
+        return True, 0.0, port.name or port.description or "港池/码头区", port.zone_type == "BTH"
     # Natural coastline proximity is intentionally not berthing evidence.
     # Normal berthing must occur in a port basin or configured facility.
     return False, None, None, False

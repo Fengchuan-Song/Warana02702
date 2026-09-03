@@ -1,6 +1,28 @@
 from django.db import models
 
 
+class MaritimeZoneRevision(models.Model):
+    """A singleton lock and version for atomic edits/imports."""
+
+    version = models.PositiveBigIntegerField(default=0)
+
+
+class MaritimeZoneOverride(models.Model):
+    """Persist operator edits without overwriting the bundled source files."""
+
+    source_id = models.BigIntegerField(unique=True, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    locode = models.CharField(max_length=8, default="CN")
+    zone_type = models.CharField(max_length=3)
+    vertices = models.JSONField()
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("pk",)
+
+
 class DetectionModelConfiguration(models.Model):
     """Operator-provided runtime overrides for one detection model."""
 

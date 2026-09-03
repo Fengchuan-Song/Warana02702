@@ -1,0 +1,64 @@
+<div id="maritime-panel-container" class="side-panel-container">
+    <div class="sidebar-header"><h2>港口、锚地与泊位</h2></div>
+    <p class="camera-config-help">管理区域名称与边界。启用的区域用于地图展示和检测，保存后下一轮检测生效。</p>
+    <details>
+        <summary>批量导入 / 导出</summary>
+        <p class="camera-config-help">支持 CSV、Excel（.xlsx / .xls），最多 5 MB、2000 行。编号留空为新增，保留编号为更新；未包含的区域保持原状。</p>
+        <div class="fence-actions">
+            <a class="fence-button" href="{% url 'maritime_zone_export' %}?template=1&amp;format=xlsx">Excel 模板</a>
+            <a class="fence-button" href="{% url 'maritime_zone_export' %}?template=1&amp;format=csv">CSV 模板</a>
+            <a class="fence-button" href="{% url 'maritime_zone_export' %}?format=xlsx">导出全部 Excel</a>
+            <a class="fence-button" href="{% url 'maritime_zone_export' %}?format=csv">导出全部 CSV</a>
+        </div>
+        <label class="fence-form-label" for="maritime-import-file">选择区域文件</label>
+        <input id="maritime-import-file" class="fence-form-control" type="file" accept=".csv,.xlsx,.xls">
+        <div class="fence-actions">
+            <button id="maritime-import-preview" class="fence-button" type="button">校验并预览</button>
+            <button id="maritime-import-save" class="fence-button" type="button" disabled>确认导入</button>
+        </div>
+        <div id="maritime-import-message" class="management-status" role="status" aria-live="polite"></div>
+        <div id="maritime-import-results" style="max-height:240px; overflow:auto;"></div>
+    </details>
+    <hr style="margin:18px 0; opacity:.2;">
+    <h3 id="maritime-form-title">新建区域</h3>
+    <input id="maritime-id" type="hidden">
+    <label class="fence-form-label" for="maritime-name">区域名称（必填）</label>
+    <input id="maritime-name" class="fence-form-control" maxlength="255" placeholder="例如：南沙港 1 号泊位">
+    <label class="fence-form-label" for="maritime-type">区域类型</label>
+    <select id="maritime-type" class="fence-form-control">
+        <option value="PRT">港口</option><option value="ANC">锚地</option><option value="BTH">泊位</option>
+        <option value="LIQ">液体散货码头</option><option value="GCO">杂货码头</option>
+        <option value="DRY">干散货码头</option><option value="CTR">集装箱码头</option>
+        <option value="GAS">气体码头</option><option value="ROR">滚装码头</option><option value="PAX">客运码头</option>
+    </select>
+    <label class="fence-form-label" for="maritime-locode">LOCODE 港口代码（选填）</label>
+    <input id="maritime-locode" class="fence-form-control" maxlength="8" placeholder="例如 CNSZX；留空使用 CN">
+    <label class="fence-form-label" for="maritime-description">区域说明</label>
+    <textarea id="maritime-description" class="fence-form-control" maxlength="2000" rows="2"></textarea>
+    <label class="fence-form-label" for="maritime-vertices">边界坐标（每行：经度, 纬度）</label>
+    <textarea id="maritime-vertices" class="fence-form-control" rows="5" placeholder="113.800000, 22.500000&#10;113.810000, 22.500000&#10;113.810000, 22.510000"></textarea>
+    <p class="camera-config-help">使用 WGS84 经纬度，至少 3 个顶点。地图选点会自动转换坐标；按顺序绘制边界，不能交叉。</p>
+    <div class="fence-actions">
+        <button id="maritime-draw" class="fence-button" type="button" aria-pressed="false">地图选点</button>
+        <button id="maritime-undo" class="fence-button" type="button">撤销一点</button>
+        <button id="maritime-cancel-draw" class="fence-button" type="button">取消选点</button>
+        <button id="maritime-preview" class="fence-button" type="button">预览边界</button>
+    </div>
+    <label class="fence-form-label"><input id="maritime-active" type="checkbox" checked> 启用区域</label>
+    <div class="fence-actions">
+        <button id="maritime-save" class="fence-button" type="button">保存区域</button>
+        <button id="maritime-new" class="fence-button" type="button">新建 / 清空</button>
+    </div>
+    <div id="maritime-message" class="management-status" role="status" aria-live="polite"></div>
+    <hr style="margin:18px 0; opacity:.2;">
+    <h3>区域列表</h3>
+    <input id="maritime-search" class="fence-form-control" type="search" aria-label="搜索区域" placeholder="搜索名称、编号、港口代码">
+    <select id="maritime-filter" class="fence-form-control" aria-label="筛选区域类型" style="margin-top:8px;">
+        <option value="">全部类型</option><option value="ports">港口 / 码头</option>
+        <option value="ANC">锚地</option><option value="BTH">泊位</option>
+    </select>
+    <label class="fence-form-label"><input id="maritime-show-inactive" type="checkbox" checked> 显示已停用区域</label>
+    <button id="maritime-refresh" class="fence-button" type="button">刷新列表</button>
+    <div id="maritime-count" class="camera-config-help"></div>
+    <div id="maritime-list">打开面板后加载区域。</div>
+</div>

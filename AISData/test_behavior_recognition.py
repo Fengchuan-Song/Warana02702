@@ -2,7 +2,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import TestCase
 from django.utils import timezone
 
 from AISData.behavior_recognition import (
@@ -13,7 +13,7 @@ from AISData.detection_queue import LATEST_ONLY_DETECTORS
 from AISData.trajectory_history import get_ais_history
 
 
-class SharedBehaviorRecognitionTests(SimpleTestCase):
+class SharedBehaviorRecognitionTests(TestCase):
     def setUp(self):
         cache.clear()
         self.started_at = timezone.now()

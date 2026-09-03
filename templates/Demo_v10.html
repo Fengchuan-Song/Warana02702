@@ -1123,6 +1123,9 @@
             <div id="btn-camera" class="toolbar-icon" onclick="togglePanel('camera-panel-container')">
                 📹<span class="icon-label">摄像头</span>
             </div>
+            <div id="btn-maritime" class="toolbar-icon" onclick="openMaritimeManagement()">
+                🗺️<span class="icon-label">海事区域</span>
+            </div>
             <div id="btn-function" class="toolbar-icon" onclick="togglePanel('function-panel-container')">
                 🛠️<span class="icon-label">功能选项</span>
             </div>
@@ -1200,6 +1203,7 @@
                     <button id="info-all-ships" class="info-button active" type="button" aria-pressed="true">全部船舶</button>
                     <button id="info-maritime-ports" class="info-button" type="button" aria-pressed="false">港口/码头</button>
                     <button id="info-maritime-anchorages" class="info-button" type="button" aria-pressed="false">锚地</button>
+                    <button id="info-maritime-berths" class="info-button" type="button" aria-pressed="false">泊位</button>
                     <button id="info-meteorology" class="info-button" type="button" aria-pressed="false">气象</button>
                     <button id="info-current-typhoon" class="info-button" type="button" aria-pressed="false">当前台风</button>
                     <button id="info-typhoon-warning-lines" class="info-button" type="button" aria-pressed="false">台风预警线</button>
@@ -1211,6 +1215,7 @@
 
         </div>
 
+        {% include 'maritime_zone_panel.html' %}
         <div id="camera-panel-container" class="side-panel-container">
             <div class="sidebar-header">
                 <h2>摄像头管理</h2>
@@ -2159,8 +2164,8 @@
         let marineWeatherLoadPromise = null;
         let marineWeatherRefreshTimer = null;
         let marineWeatherInfoWindow = null;
-        let maritimeZoneOverlays = { ports: [], anchorages: [] };
-        let maritimeZoneVisibility = { ports: false, anchorages: false };
+        let maritimeZoneOverlays = { ports: [], anchorages: [], berths: [] };
+        let maritimeZoneVisibility = { ports: false, anchorages: false, berths: false };
         let maritimeZoneLoadPromise = null;
         let maritimeZoneInfoWindow = null;
         let cameraConfigurations = new Map();
@@ -4184,6 +4189,8 @@
                         setMaritimeZoneVisibility('ports', isSelected);
                     } else if (button.id === 'info-maritime-anchorages') {
                         setMaritimeZoneVisibility('anchorages', isSelected);
+                    } else if (button.id === 'info-maritime-berths') {
+                        setMaritimeZoneVisibility('berths', isSelected);
                     } else if (button.id === 'info-meteorology') {
                         setMarineWeatherLayerVisibility(isSelected);
                     } else if (button.id === 'info-current-typhoon') {
@@ -4224,7 +4231,7 @@
         }
 
         function maritimeZoneLayerKey(zoneType) {
-            return zoneType === 'ANC' ? 'anchorages' : 'ports';
+            return zoneType === 'ANC' ? 'anchorages' : zoneType === 'BTH' ? 'berths' : 'ports';
         }
 
         function showMaritimeZoneInfo(feature, position) {
@@ -4253,10 +4260,10 @@
                 Array.isArray(feature.geometry.coordinates?.[0])
             );
             const lengths = features.map(feature => feature.geometry.coordinates[0].length);
-            const converted = await convertGpsCoordinates(
+            const converted = await convertMaritimeGpsStrict(
                 features.flatMap(feature => feature.geometry.coordinates[0])
             );
-            const nextOverlays = { ports: [], anchorages: [] };
+            const nextOverlays = { ports: [], anchorages: [], berths: [] };
             let offset = 0;
 
             features.forEach((feature, index) => {
@@ -4264,17 +4271,20 @@
                 offset += lengths[index];
                 const layerKey = maritimeZoneLayerKey(feature.properties?.zone_type);
                 const isAnchorage = layerKey === 'anchorages';
+                const color = layerKey === 'berths' ? '#A78BFA' : isAnchorage ? '#00B5D8' : '#F6AD55';
                 const polygon = new AMap.Polygon({
                     map: map,
                     path: path,
-                    strokeColor: isAnchorage ? '#00B5D8' : '#F6AD55',
+                    strokeColor: color,
                     strokeWeight: 2,
                     strokeOpacity: 0.9,
-                    fillColor: isAnchorage ? '#00B5D8' : '#F6AD55',
+                    fillColor: color,
                     fillOpacity: isAnchorage ? 0.20 : 0.13,
                     zIndex: isAnchorage ? 63 : 62,
+                    bubble: true,
                 });
                 polygon.on('click', event => {
+                    if (polygonAreaPointSelection) return;
                     showMaritimeZoneInfo(feature, event.lnglat || path[0]);
                 });
                 nextOverlays[layerKey].push(polygon);
@@ -4287,13 +4297,13 @@
             });
             setMaritimeZoneStatus(
                 `已加载港口/码头 ${nextOverlays.ports.length} 个，` +
-                `锚地 ${nextOverlays.anchorages.length} 个`
+                `锚地 ${nextOverlays.anchorages.length} 个，泊位 ${nextOverlays.berths.length} 个`
             );
         }
 
         function loadMaritimeZones() {
             if (maritimeZoneLoadPromise) return maritimeZoneLoadPromise;
-            setMaritimeZoneStatus('正在加载粤港澳港口与锚地数据……');
+            setMaritimeZoneStatus('正在加载港口、锚地与泊位数据……');
             maritimeZoneLoadPromise = fetch(MARITIME_ZONE_COLLECTION_URL, {
                 headers: { Accept: 'application/json' },
             })
@@ -5690,6 +5700,7 @@
             const targetPanel = document.getElementById(panelId);
             const targetButton = document.getElementById(`btn-${panelId.split('-')[0]}`);
             const isActive = targetPanel.classList.contains('active');
+            if (panelId !== 'maritime-panel-container' || isActive) clearMaritimePreview();
 
             if (isCameraMapPickActive && (panelId !== 'camera-panel-container' || isActive)) {
                 stopCameraMapPick();
@@ -6029,6 +6040,7 @@
                 strokeWeight: 3,
                 strokeOpacity: 0.95,
                 zIndex: 159,
+                bubble: true,
             };
             selection.draftOverlay = selection.vertices.length >= 3
                 ? new AMap.Polygon({
@@ -6039,7 +6051,8 @@
                 : new AMap.Polyline(options);
         }
 
-        function completePolygonAreaPointSelection(selection) {
+        async function completePolygonAreaPointSelection(selection) {
+            if (selection.finishing) return;
             if (selection.vertices.length < 3) {
                 selection.setMessage(
                     `${selection.areaLabel}至少需要 3 个顶点，当前已选择 ` +
@@ -6053,6 +6066,19 @@
                 return;
             }
 
+            if (selection.onComplete) {
+                selection.finishing = true;
+                try {
+                    await selection.onComplete(selection.vertices.map(point => [...point]));
+                    if (polygonAreaPointSelection !== selection) return;
+                    const count = selection.vertices.length;
+                    stopPolygonAreaPointSelection();
+                    selection.setMessage(`已完成 ${count} 个顶点的地图选点，请填写信息后保存。`);
+                } catch (error) {
+                    if (polygonAreaPointSelection === selection) selection.setMessage(error.message, true);
+                } finally { selection.finishing = false; }
+                return;
+            }
             const longitudes = selection.vertices.map(point => point[0]);
             const latitudes = selection.vertices.map(point => point[1]);
             const minLon = Math.min(...longitudes);
@@ -6084,6 +6110,7 @@
             color,
             setMessage,
             areaLabel,
+            onComplete,
         }) {
             if (!map) {
                 setMessage('地图尚未加载完成，请稍后重试', true);
@@ -6107,6 +6134,7 @@
                 color,
                 setMessage,
                 areaLabel,
+                onComplete,
                 vertices: [],
                 vertexMarkers: [],
                 draftOverlay: null,
@@ -6114,6 +6142,8 @@
                 handleKeydown: null,
             };
             selection.handleClick = event => {
+                if (selection.finishing) return;
+                if (selection.vertices.length >= 500) { setMessage('最多选择 500 个顶点。', true); return; }
                 const point = [
                     Number(event.lnglat.getLng()),
                     Number(event.lnglat.getLat()),
@@ -6137,6 +6167,7 @@
                     strokeColor: '#FFFFFF',
                     strokeWeight: 2,
                     zIndex: 160,
+                    bubble: true,
                 }));
                 updatePolygonSelectionPreview(selection);
                 const button = document.getElementById(buttonId);
@@ -7040,6 +7071,8 @@
         }
 
         function openManagementPanel(panelId, buttonId) {
+            if (polygonAreaPointSelection && polygonAreaPointSelection.panelId !== panelId) stopPolygonAreaPointSelection();
+            if (panelId !== 'maritime-panel-container') clearMaritimePreview();
             document.querySelectorAll('.side-panel-container')
                 .forEach(panel => panel.classList.remove('active'));
             document.querySelectorAll('.toolbar-icon')
@@ -8525,8 +8558,12 @@
         }
 
 
+        {% include 'maritime_coordinates.js' %}
+        {% include 'maritime_zone_script.html' %}
+
         // 【修改】页面加载完成后初始化地图和功能选项的开关状态
         window.onload = function() {
+            setupMaritimeManagement();
             initMap();
             setupBaseMapSelector();
             setupInfoLayerButtons();

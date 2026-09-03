@@ -51,7 +51,7 @@ def polygon_interior_point(zone):
     raise AssertionError(f"No interior test point found for {zone.name}")
 
 
-class AnchorageGeometryTests(SimpleTestCase):
+class AnchorageGeometryTests(TestCase):
     def test_detector_is_registered_and_legacy_url_is_cache_only(self):
         self.assertEqual(
             DETECTORS["detect-illegalAnchored"],

@@ -47,7 +47,7 @@ def polygon_centroid(points):
     )
 
 
-class ParkingEventAlgorithmTests(SimpleTestCase):
+class ParkingEventAlgorithmTests(TestCase):
     def test_detector_is_registered(self):
         self.assertEqual(
             DETECTORS["detect-abnormalStaying"],

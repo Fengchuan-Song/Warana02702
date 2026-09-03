@@ -369,14 +369,8 @@ def classify_location(lon, lat):
                 "reason": zone["reason"],
             }
 
-    for zone in AUTHORIZED_ANCHORAGES:
-        if _inside_zone(lon, lat, zone):
-            return {
-                "state": "authorized",
-                "zone_name": zone["name"],
-                "reason": "位于已公布锚地范围内",
-            }
-
+    # Published anchorages and operator overrides share one query. A moved or
+    # disabled anchorage must never fall back to its old hard-coded boundary.
     dataset_anchorage = find_authorized_anchorage(lon, lat)
     if dataset_anchorage is not None:
         return {

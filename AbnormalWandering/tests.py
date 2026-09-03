@@ -125,7 +125,7 @@ def polygon_centroid(points):
 
 
 @override_settings(ABNORMAL_WANDERING=TEST_CONFIG)
-class LoiteringAlgorithmTests(SimpleTestCase):
+class LoiteringAlgorithmTests(TestCase):
     def test_haversine_distance_and_displacement_efficiency(self):
         distance = haversine_metres((114.6, 22.5), (114.601, 22.5))
         self.assertAlmostEqual(distance, 102.7, delta=1.0)

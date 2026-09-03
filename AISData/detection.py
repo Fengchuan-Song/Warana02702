@@ -254,7 +254,9 @@ def _execute_detector(
     try:
         if isinstance(detector, str):
             detector = import_string(detector)
-        with apply_runtime_parameter_override(feature_id):
+        from .maritime_zone_registry import maritime_zone_snapshot
+
+        with apply_runtime_parameter_override(feature_id), maritime_zone_snapshot():
             response = detector(
                 _internal_request(
                     feature_id,

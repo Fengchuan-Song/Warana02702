@@ -537,7 +537,7 @@ class DetectionModelParameterTests(TestCase):
         )
 
 
-class MaritimeZoneDatasetTests(SimpleTestCase):
+class MaritimeZoneDatasetTests(TestCase):
     def test_dataset_is_stored_only_as_authenticated_ciphertext(self):
         plaintext_path = ENCRYPTED_DATASET_PATH.with_suffix("")
 
@@ -564,7 +564,7 @@ class MaritimeZoneDatasetTests(SimpleTestCase):
             2,
         )
         self.assertEqual(len(get_maritime_zones({"PRT"})), 52)
-        self.assertEqual(len(get_maritime_zones({"ANC"})), 43)
+        self.assertEqual(len(get_maritime_zones({"ANC"})), 60)
 
     def test_geojson_api_exposes_and_filters_zones(self):
         response = self.client.get(
@@ -588,8 +588,8 @@ class MaritimeZoneDatasetTests(SimpleTestCase):
     def test_geojson_summary_and_unknown_type_validation(self):
         payload = maritime_zone_geojson(zone_types={"ANC"})
 
-        self.assertEqual(payload["count"], 43)
-        self.assertEqual(payload["type_counts"], {"ANC": 43})
+        self.assertEqual(payload["count"], 60)
+        self.assertEqual(payload["type_counts"], {"ANC": 60})
         response = self.client.get(
             reverse("maritime_zone_collection"),
             {"type": "UNKNOWN"},

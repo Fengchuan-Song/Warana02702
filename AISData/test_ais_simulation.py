@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from AISData.ais_simulation import (
     LoadedAISData,
@@ -65,7 +65,7 @@ def _loaded(points):
 
 
 @override_settings(CACHES=TEST_CACHES, CHANNEL_LAYERS=TEST_CHANNEL_LAYERS)
-class AISSimulationTests(SimpleTestCase):
+class AISSimulationTests(TestCase):
     def setUp(self):
         cache.clear()
 

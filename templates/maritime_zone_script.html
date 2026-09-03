@@ -1,0 +1,287 @@
+const MARITIME_MANAGEMENT_URL = "{% url 'maritime_zone_management' %}";
+const MARITIME_IMPORT_URL = "{% url 'maritime_zone_import_preview' %}";
+let managedMaritimeZones = new Map();
+let maritimeRevision = null;
+let maritimeFormRevision = null;
+let maritimeImportDraft = null;
+let maritimeDraftOverlay = null;
+let maritimePreviewSequence = 0;
+let maritimeManagementBusy = false;
+let maritimeLoadSequence = 0;
+const maritimeElement = name => document.getElementById(`maritime-${name}`);
+const maritimeMessage = (message, error = false) => setManagementMessage('maritime-message', message, error);
+const maritimeImportMessage = (message, error = false) => setManagementMessage('maritime-import-message', message, error);
+
+function clearMaritimePreview() {
+    maritimePreviewSequence += 1;
+    if (maritimeDraftOverlay) maritimeDraftOverlay.setMap(null);
+    maritimeDraftOverlay = null;
+}
+
+function resetMaritimeForm() {
+    if (polygonAreaPointSelection?.kind === 'maritime') stopPolygonAreaPointSelection();
+    clearMaritimePreview();
+    ['id', 'name', 'locode', 'description', 'vertices'].forEach(name => maritimeElement(name).value = '');
+    maritimeElement('type').value = 'PRT';
+    maritimeElement('active').checked = true;
+    maritimeElement('form-title').textContent = '新建区域';
+    maritimeFormRevision = maritimeRevision;
+    maritimeMessage('填写信息或在地图选点后保存。');
+}
+
+async function openMaritimeManagement() {
+    togglePanel('maritime-panel-container');
+    if (!maritimeElement('panel-container').classList.contains('active')) return;
+    await loadManagedMaritimeZones();
+}
+
+async function loadManagedMaritimeZones() {
+    const sequence = ++maritimeLoadSequence;
+    try {
+        const payload = await fenceRequest(MARITIME_MANAGEMENT_URL);
+        if (sequence !== maritimeLoadSequence) return;
+        managedMaritimeZones = new Map(payload.zones.map(zone => [zone.id, zone]));
+        maritimeRevision = payload.revision;
+        // Refreshing the list must not make an old edit look current.
+        if (maritimeFormRevision === null || !maritimeElement('id').value) maritimeFormRevision = maritimeRevision;
+        else if (maritimeFormRevision !== maritimeRevision) maritimeMessage('列表已更新。请重新点击该区域的“编辑”加载最新数据，再保存修改。', true);
+        renderManagedMaritimeZones();
+    } catch (error) {
+        maritimeMessage(`区域加载失败：${error.message}`, true);
+    }
+}
+
+function renderManagedMaritimeZones() {
+    const query = maritimeElement('search').value.trim().toLowerCase();
+    const type = maritimeElement('filter').value;
+    const showInactive = maritimeElement('show-inactive').checked;
+    const zones = [...managedMaritimeZones.values()].filter(zone =>
+        (showInactive || zone.is_active) &&
+        (!type || (type === 'ports' ? !['ANC', 'BTH'].includes(zone.zone_type) : zone.zone_type === type)) &&
+        `${zone.name} ${zone.id} ${zone.locode}`.toLowerCase().includes(query)
+    );
+    maritimeElement('count').textContent = `共 ${managedMaritimeZones.size} 条，筛选结果 ${zones.length} 条`;
+    const list = maritimeElement('list');
+    list.replaceChildren();
+    if (!zones.length) { list.textContent = '暂无匹配区域。'; return; }
+    const sources = {bundled: '系统数据', published: '已公布锚地', edited: '已修改', custom: '自定义'};
+    zones.forEach(zone => {
+        const card = document.createElement('div');
+        card.className = 'fence-list-item';
+        card.style.cssText = 'padding:12px 0;border-bottom:1px solid #334155;';
+        const title = document.createElement('strong');
+        title.textContent = zone.name;
+        const meta = document.createElement('p');
+        meta.className = 'camera-config-help';
+        meta.textContent = `${zone.type_label} · ${zone.is_active ? '已启用' : '已停用'} · ${sources[zone.source]} · 编号 ${zone.id}`;
+        const actions = document.createElement('div');
+        actions.className = 'fence-actions';
+        [['编辑', () => editManagedMaritimeZone(zone.id)], ['定位', () => previewMaritimeVertices(zone.vertices)],
+         [zone.is_active ? '停用' : '启用', () => toggleManagedMaritimeZone(zone.id)]].forEach(([label, handler]) => {
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'fence-button'; button.textContent = label;
+            button.disabled = maritimeManagementBusy;
+            button.onclick = handler; actions.appendChild(button);
+        });
+        card.append(title, meta, actions); list.appendChild(card);
+    });
+}
+
+function editManagedMaritimeZone(id) {
+    const zone = managedMaritimeZones.get(id);
+    if (!zone) return;
+    resetMaritimeForm();
+    maritimeElement('id').value = zone.id;
+    maritimeElement('name').value = zone.name;
+    maritimeElement('description').value = zone.description;
+    maritimeElement('locode').value = zone.locode;
+    maritimeElement('type').value = zone.zone_type;
+    // Preserve full precision so metadata edits do not change existing shapes.
+    maritimeElement('vertices').value = zone.vertices.map(point => point.join(', ')).join('\n');
+    maritimeElement('active').checked = zone.is_active;
+    maritimeElement('form-title').textContent = `编辑区域 · ${zone.id}`;
+    maritimeFormRevision = maritimeRevision;
+    maritimeMessage(`正在编辑：${zone.name}`);
+    maritimeElement('form-title').scrollIntoView({block: 'start'});
+    previewMaritimeVertices(zone.vertices);
+}
+
+function setMaritimeBusy(busy) {
+    maritimeManagementBusy = busy;
+    ['save', 'new', 'draw', 'undo', 'cancel-draw', 'preview', 'import-preview', 'refresh'].forEach(name => maritimeElement(name).disabled = busy);
+    maritimeElement('import-save').disabled = busy || !maritimeImportDraft;
+    renderManagedMaritimeZones();
+}
+
+async function refreshMaritimeDisplays() {
+    await loadManagedMaritimeZones();
+    // Wait out an old in-flight map request before requesting the new version.
+    if (maritimeZoneLoadPromise) await maritimeZoneLoadPromise.catch(() => {});
+    await loadMaritimeZones();
+    await loadSmugglingPorts();
+}
+
+async function saveManagedMaritimeRows(rows, revision) {
+    return fenceRequest(MARITIME_MANAGEMENT_URL, {
+        method: 'POST', body: JSON.stringify({rows, revision}),
+    });
+}
+
+async function saveManagedMaritimeZone() {
+    if (maritimeManagementBusy) return;
+    if (polygonAreaPointSelection?.kind === 'maritime') {
+        maritimeMessage('请先点击“完成选点”，再保存区域。', true); return;
+    }
+    let committed = false;
+    try {
+        const row = {
+            id: maritimeElement('id').value || null, name: maritimeElement('name').value,
+            zone_type: maritimeElement('type').value, locode: maritimeElement('locode').value,
+            description: maritimeElement('description').value,
+            vertices: parseFenceVertices(maritimeElement('vertices').value),
+            is_active: maritimeElement('active').checked,
+        };
+        setMaritimeBusy(true);
+        const payload = await saveManagedMaritimeRows([row], maritimeFormRevision);
+        committed = true;
+        maritimeRevision = payload.revision;
+        resetMaritimeForm();
+        await refreshMaritimeDisplays();
+        maritimeMessage(payload.message);
+    } catch (error) {
+        maritimeMessage(`${committed ? '区域已保存，但刷新失败：' : ''}${error.message}`, true);
+    } finally { setMaritimeBusy(false); }
+}
+
+async function toggleManagedMaritimeZone(id) {
+    if (maritimeManagementBusy) return;
+    const zone = managedMaritimeZones.get(id);
+    if (!zone) return;
+    let committed = false;
+    try {
+        setMaritimeBusy(true);
+        const {source, type_label, ...row} = zone;
+        await saveManagedMaritimeRows([{...row, is_active: !zone.is_active}], maritimeRevision);
+        committed = true;
+        await refreshMaritimeDisplays();
+        maritimeMessage(`已${zone.is_active ? '停用' : '启用'}：${zone.name}。下一轮检测生效。`);
+    } catch (error) {
+        maritimeMessage(`${committed ? '状态已保存，但刷新失败：' : ''}${error.message}`, true);
+    } finally { setMaritimeBusy(false); }
+}
+
+function clearMaritimeImport() {
+    maritimeImportDraft = null;
+    maritimeElement('import-save').disabled = true;
+    maritimeElement('import-results').replaceChildren();
+    maritimeImportMessage('');
+}
+
+async function previewMaritimeImport() {
+    if (maritimeManagementBusy) return;
+    clearMaritimeImport();
+    const file = maritimeElement('import-file').files[0];
+    if (!file) { maritimeImportMessage('请先选择文件。', true); return; }
+    if (file.size > 5 * 1024 * 1024) { maritimeImportMessage('文件不能超过 5 MB。', true); return; }
+    try {
+        setMaritimeBusy(true);
+        maritimeImportMessage('正在校验文件……');
+        const form = new FormData(); form.append('file', file);
+        const response = await fetch(MARITIME_IMPORT_URL, {
+            method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}, body: form,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || `HTTP ${response.status}`);
+        if (maritimeElement('import-file').files[0] !== file) return;
+        maritimeImportDraft = payload;
+        maritimeImportMessage(`校验通过：新增 ${payload.created} 条，更新 ${payload.updated} 条。请检查后点击“确认导入”。`);
+        payload.rows.forEach((row, index) => {
+            const item = document.createElement('p');
+            item.className = 'camera-config-help';
+            item.textContent = `第 ${index + 2} 行 · ${row.id === null ? '新增' : `更新 ${row.id}`} · ${row.name} · ${row.zone_type} · ${row.vertices.length} 点 · ${row.is_active ? '启用' : '停用'}`;
+            maritimeElement('import-results').appendChild(item);
+        });
+    } catch (error) { maritimeImportMessage(error.message, true); }
+    finally { setMaritimeBusy(false); }
+}
+
+async function commitMaritimeImport() {
+    if (!maritimeImportDraft || maritimeManagementBusy) return;
+    let committed = false;
+    try {
+        setMaritimeBusy(true);
+        const payload = await saveManagedMaritimeRows(maritimeImportDraft.rows, maritimeImportDraft.revision);
+        committed = true;
+        clearMaritimeImport();
+        maritimeElement('import-file').value = '';
+        await refreshMaritimeDisplays();
+        maritimeImportMessage(payload.message);
+    } catch (error) {
+        maritimeImportMessage(`${committed ? '导入已完成，但刷新失败：' : ''}${error.message}`, true);
+    } finally { setMaritimeBusy(false); }
+}
+
+async function convertMaritimeGpsStrict(points) {
+    return points.map(MaritimeCoordinates.gpsToMap);
+}
+
+async function maritimeMapToGps(points) {
+    return points.map(MaritimeCoordinates.mapToGps);
+}
+
+async function previewMaritimeVertices(vertices) {
+    if (!map) { maritimeMessage('地图尚未加载完成。', true); return; }
+    clearMaritimePreview();
+    const sequence = maritimePreviewSequence;
+    try {
+        const path = await convertMaritimeGpsStrict(vertices);
+        if (sequence !== maritimePreviewSequence || !maritimeElement('panel-container').classList.contains('active')) return;
+        maritimeDraftOverlay = new AMap.Polygon({map, path, strokeColor: '#A78BFA', strokeWeight: 3,
+            fillColor: '#A78BFA', fillOpacity: 0.22, zIndex: 158, bubble: true});
+        map.setFitView([maritimeDraftOverlay], true, [80, 80, 80, 420]);
+    } catch (error) { maritimeMessage(error.message, true); }
+}
+
+function startMaritimeDrawing() {
+    clearMaritimePreview();
+    beginPolygonAreaPointSelection({
+        kind: 'maritime', panelId: 'maritime-panel-container', buttonId: 'maritime-draw',
+        inputPrefix: 'maritime', color: '#A78BFA', setMessage: maritimeMessage, areaLabel: '海事区域',
+        onComplete: async vertices => {
+            const selection = polygonAreaPointSelection;
+            maritimeMessage('正在转换坐标……');
+            const gps = await maritimeMapToGps(vertices);
+            if (polygonAreaPointSelection !== selection) return;
+            maritimeElement('vertices').value = gps.map(point => point.map(value => value.toFixed(8)).join(', ')).join('\n');
+            previewMaritimeVertices(gps);
+        },
+    });
+}
+
+function setupMaritimeManagement() {
+    maritimeElement('save').onclick = saveManagedMaritimeZone;
+    maritimeElement('new').onclick = resetMaritimeForm;
+    maritimeElement('draw').onclick = startMaritimeDrawing;
+    maritimeElement('undo').onclick = () => {
+        const selection = polygonAreaPointSelection;
+        if (selection?.kind !== 'maritime' || selection.finishing) return;
+        selection.vertices.pop(); selection.vertexMarkers.pop()?.setMap(null);
+        updatePolygonSelectionPreview(selection);
+        maritimeElement('draw').textContent = `完成选点（${selection.vertices.length}）`;
+        maritimeMessage(`已选择 ${selection.vertices.length} 个顶点。`);
+    };
+    maritimeElement('cancel-draw').onclick = () => {
+        if (polygonAreaPointSelection?.kind === 'maritime') stopPolygonAreaPointSelection();
+        maritimeMessage('已取消选点，表单坐标保持不变。');
+    };
+    maritimeElement('preview').onclick = () => {
+        try { previewMaritimeVertices(parseFenceVertices(maritimeElement('vertices').value)); }
+        catch (error) { maritimeMessage(error.message, true); }
+    };
+    maritimeElement('vertices').addEventListener('input', clearMaritimePreview);
+    maritimeElement('refresh').onclick = () => loadManagedMaritimeZones();
+    ['search', 'filter', 'show-inactive'].forEach(name => maritimeElement(name).addEventListener('input', renderManagedMaritimeZones));
+    maritimeElement('import-file').addEventListener('change', clearMaritimeImport);
+    maritimeElement('import-preview').onclick = previewMaritimeImport;
+    maritimeElement('import-save').onclick = commitMaritimeImport;
+}

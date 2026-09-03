@@ -13,6 +13,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from AISData.detection_source import detection_source_id
+from AISData.maritime_zone_registry import get_zone_snapshot, maritime_zone_snapshot
 from AISData.low_speed_behavior import (
     analyse_low_speed_behavior,
     detect_moored_status_underway,
@@ -173,6 +174,7 @@ def _calculate(points, config):
     return analysis, moored_underway
 
 
+@maritime_zone_snapshot()
 def update_behavior_results(
     sources,
     *,
@@ -188,6 +190,8 @@ def update_behavior_results(
     latest = _latest_sources(sources)
     if not latest:
         return {}
+
+    zone_revision = get_zone_snapshot()["revision"]
 
     keys = {
         _cache_key(source_id, mmsi): mmsi
@@ -205,6 +209,7 @@ def update_behavior_results(
         value = cached.get(key)
         if (
             isinstance(value, dict)
+            and value.get("zone_revision") == zone_revision
             and value.get("observed_at") == latest[mmsi]["timestamp"]
             and value.get("source_signature")
             == _source_signature(latest[mmsi])
@@ -255,6 +260,7 @@ def update_behavior_results(
         analysis, moored_underway = _calculate(points, config)
         value = {
             "mmsi": mmsi,
+            "zone_revision": zone_revision,
             "observed_at": latest[mmsi]["timestamp"],
             "source_signature": _source_signature(latest[mmsi]),
             "computed_at": timezone.now().isoformat(),

@@ -1,4 +1,5 @@
 from django.urls import path
+from .maritime_zone_views import zone_export, zone_import_preview, zone_management
 
 from .views import (
     cached_detection_result,
@@ -12,6 +13,9 @@ from .views import (
 
 
 urlpatterns = [
+    path("maritime-zones/manage/", zone_management, name="maritime_zone_management"),
+    path("maritime-zones/import-preview/", zone_import_preview, name="maritime_zone_import_preview"),
+    path("maritime-zones/export/", zone_export, name="maritime_zone_export"),
     path(
         "model-parameters/",
         detection_model_parameter_collection,
