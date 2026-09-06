@@ -1,5 +1,8 @@
 # Local AIS receiver simulation
 
+中文完整参数说明与“多个 CSV + 无限循环播放”示例见
+[simulate_ais_realtime 使用说明](SIMULATE_AIS_REALTIME_USAGE_ZH.md)。
+
 `simulate_ais_realtime` converts historical decoded AIS CSV rows into a
 delivery-ordered local stream. It uses source timestamps as event time and
 sets `received_at` when a batch reaches the application.

@@ -14,3 +14,6 @@ outputs/guangdong_port_filter
 second_client/
 warana_backup.sql
 temp_data.py
+warana_backup_new.sql
+system.md
+warana_mysqlsh_20260904
