@@ -244,12 +244,19 @@ def _internal_request(feature_id, ship_list, detection_context=None):
     return request
 
 
-def _execute_detector(
+def run_detector_core(
     feature_id,
     detector,
     ship_list,
     detection_context=None,
 ):
+    """Execute one detector without cache, persistence, or WebSocket effects.
+
+    The callable is shared by operational workers and the offline evaluation
+    runner.  Detector-owned rolling state is deliberately left intact here;
+    callers choose the appropriate state boundary (the evaluation runner uses
+    an isolated cache plus a rolled-back database transaction per sample).
+    """
     computed_at = timezone.now().isoformat()
     try:
         if isinstance(detector, str):
@@ -322,7 +329,7 @@ def run_detector(
             simulation_id,
         )
         previous_payload = cache.get(result_cache_key)
-        payload = _execute_detector(
+        payload = run_detector_core(
             feature_id,
             DETECTORS[feature_id],
             ship_list,

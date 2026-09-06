@@ -5,9 +5,9 @@ import time
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.core.management.base import BaseCommand, CommandError
-import pandas as pd
 
 from AISData.consumers import AisConsumer
+from AISRadar.fusion_core import run_fusion_frame
 from AISRadar.fusion_input import get_fusion_input
 from AISRadar.fusion_state import (
     clear_fusion_state,
@@ -69,9 +69,10 @@ class Command(BaseCommand):
 
                     if state.get("available") and state.get("radar_event"):
                         try:
-                            result = matcher.predict_tables(
-                                pd.DataFrame(state.get("ais_rows") or []),
-                                pd.DataFrame(state.get("radar_rows") or []),
+                            result = run_fusion_frame(
+                                state.get("ais_rows") or [],
+                                state.get("radar_rows") or [],
+                                matcher=matcher,
                             )
                             fusion_state = publish_fusion_result(result)
                             self._send_fusion_state(channel_layer, fusion_state)

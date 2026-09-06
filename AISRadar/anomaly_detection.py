@@ -21,21 +21,25 @@ FUSION_DETECTORS = {
 }
 
 
+def run_fusion_detector(feature_id, fusion_state):
+    """Run one production fusion detector without publishing side effects."""
+    try:
+        detector = FUSION_DETECTORS[feature_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown fusion detector: {feature_id}") from exc
+    return detector(fusion_state)
+
+
 def build_fusion_detection_results(fusion_state):
     return {
-        feature_id: detector(fusion_state)
-        for feature_id, detector in FUSION_DETECTORS.items()
+        feature_id: run_fusion_detector(feature_id, fusion_state)
+        for feature_id in FUSION_DETECTORS
     }
 
 
 def publish_fusion_detection_result(feature_id, fusion_state, channel_layer=None):
     """Publish one detector that consumes an AIS/Radar fusion snapshot."""
-    try:
-        detector = FUSION_DETECTORS[feature_id]
-    except KeyError as exc:
-        raise ValueError(f"Unknown fusion detector: {feature_id}") from exc
-
-    payload = detector(fusion_state)
+    payload = run_fusion_detector(feature_id, fusion_state)
     timeout = getattr(settings, "CACHE_TTL", 300)
     try:
         previous_payload = cache.get(detection_cache_key(feature_id))
