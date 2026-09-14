@@ -28,7 +28,13 @@ def build_fusion_detection_results(fusion_state):
     }
 
 
-def publish_fusion_detection_result(feature_id, fusion_state, channel_layer=None):
+def publish_fusion_detection_result(
+    feature_id,
+    fusion_state,
+    channel_layer=None,
+    *,
+    strict=False,
+):
     """Publish one detector that consumes an AIS/Radar fusion snapshot."""
     try:
         detector = FUSION_DETECTORS[feature_id]
@@ -52,6 +58,8 @@ def publish_fusion_detection_result(feature_id, fusion_state, channel_layer=None
             feature_id,
             exc_info=True,
         )
+        if strict:
+            raise
 
     if channel_layer is None:
         channel_layer = get_channel_layer()
@@ -66,16 +74,24 @@ def publish_fusion_detection_result(feature_id, fusion_state, channel_layer=None
             )
         except Exception:
             LOGGER.warning("Could not broadcast fusion detection", exc_info=True)
+            if strict:
+                raise
     return payload
 
 
-def publish_fusion_detection_results(fusion_state, channel_layer=None):
+def publish_fusion_detection_results(
+    fusion_state,
+    channel_layer=None,
+    *,
+    strict=False,
+):
     """Cache and broadcast CloseAIS/Forgery results from one fusion window."""
     return {
         feature_id: publish_fusion_detection_result(
             feature_id,
             fusion_state,
             channel_layer=channel_layer,
+            strict=strict,
         )
         for feature_id in FUSION_DETECTORS
     }

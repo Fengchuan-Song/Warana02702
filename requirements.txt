@@ -20,6 +20,7 @@ click==8.1.8
 click-plugins==1.1.1
 cligj==0.7.2
 colorama==0.4.6
+confluent-kafka==2.6.1
 constantly==23.10.4
 contourpy==1.1.1
 cryptography==46.0.3

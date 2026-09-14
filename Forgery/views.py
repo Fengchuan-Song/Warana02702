@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from AISData.detection import get_detection_result
+from AISRadar.alert_confirmation import confirm_consecutive_targets
 
 
 FEATURE_ID = "detect-spoofing"
@@ -24,22 +25,35 @@ def _position(target):
 
 
 def detect_forgery(fusion_state):
-    """Return one alert for every AIS trajectory unmatched by Radar."""
+    """Alert only after an AIS trajectory is unmatched in consecutive frames."""
     source_time = fusion_state.get("source_end_time")
+    confirmation = confirm_consecutive_targets(
+        FEATURE_ID,
+        fusion_state,
+        fusion_state.get("unmatched_ais_targets") or [],
+    )
     results = []
-    for target in fusion_state.get("unmatched_ais_targets") or []:
-        ais_id = str(target.get("id") or "").strip()
+    for confirmed in confirmation["confirmed"]:
+        target = confirmed["target"]
+        ais_id = confirmed["target_id"]
         if not ais_id:
             continue
         position = _position(target)
+        consecutive = confirmed["consecutive_frames"]
         item = {
             "ais_id": ais_id,
             "mmsi": ais_id,
             "name": f"AIS目标 {ais_id}",
             "status": "疑似身份伪造",
             "risk": "高风险",
-            "details": "仅检测到AIS轨迹，未关联到雷达轨迹",
+            "details": f"连续{consecutive}帧仅检测到AIS轨迹，未关联到雷达轨迹",
             "timestamp": source_time,
+            "confirmation_frames": consecutive,
+            "confirmation_frames_required": confirmation[
+                "confirmation_frames_required"
+            ],
+            "first_unmatched_at": confirmed["first_seen"],
+            "last_unmatched_at": confirmed["last_seen"],
         }
         if position:
             item.update(
@@ -58,6 +72,10 @@ def detect_forgery(fusion_state):
         "timestamp": source_time,
         "computed_at": timezone.now().isoformat(),
         "count": len(results),
+        "candidate_count": confirmation["candidate_count"],
+        "confirmation_frames_required": confirmation[
+            "confirmation_frames_required"
+        ],
         "results": results,
         "message": "AIS-only target detection completed",
     }

@@ -30,6 +30,32 @@ Each successful `match/` request publishes its latest window to
 `fused-targets/`. Redis is used when available, with an in-process fallback for
 single-worker development.
 
+## Kafka Radar input
+
+Operational Radar targets can be consumed from the same raw
+`TargetProtoListZ.SerializeToString()` Kafka values as operational AIS. Start
+the Radar consumer and the independent fusion worker:
+
+```powershell
+python manage.py kafka_radar_worker
+python manage.py fusion_coordinator_worker
+```
+
+The Radar worker has a distinct consumer group, accepts `RADAR` targets, and
+optionally accepts `SIM_RADAR` when `KAFKA_RADAR_ACCEPT_SIM=true`. It publishes
+the latest per-track snapshot to Redis/WebSocket and appends each Radar event
+to a Redis Stream. The coordinator waits for the AIS consumer's matching Kafka
+partition offset (or a bounded timeout), loads causal AIS history, runs JPDA,
+publishes the CloseAIS/Forgery results, and acknowledges the stream entry only
+after publication. Configure it with
+`KAFKA_RADAR_BOOTSTRAP_SERVERS`, `KAFKA_RADAR_TOPIC`,
+`KAFKA_RADAR_GROUP_ID`, and `KAFKA_RADAR_TIMESTAMP_UNIT`. Common Kafka SASL
+settings are shared with the AIS worker. Coordination controls include
+`AIS_RADAR_FUSION_WAIT_MS`, `AIS_RADAR_FUSION_STREAM_MAX_LENGTH`, and
+`AIS_RADAR_FUSION_MAX_AIS_GAP_SECONDS`. Stream trimming is disabled by default;
+successfully acknowledged entries are deleted instead, so pending work is not
+discarded by a length cap.
+
 ## Real-time replay
 
 The migrated scene pairs in `Data/AIS-Rdar` are replayed in timestamp order
@@ -76,6 +102,15 @@ Every completed Radar fusion frame also drives two association-based detectors:
 
 - `CloseAIS` / `detect-ais-off`: Radar trajectories with no matched AIS target;
 - `Forgery` / `detect-spoofing`: AIS trajectories with no matched Radar target.
+
+Both detectors keep a per-target confirmation streak in Redis. A transient
+single-frame JPDA miss remains a candidate; by default, an alert is emitted on
+the third consecutive unmatched fusion frame. A matched/missing frame, an
+out-of-order frame, or a gap longer than 30 seconds resets that target's streak.
+Kafka event ids make stream retries idempotent. Configure the behavior with
+`AIS_RADAR_ALERT_CONFIRMATION_FRAMES` (normally 3–5),
+`AIS_RADAR_ALERT_MAX_GAP_SECONDS`, and
+`AIS_RADAR_ALERT_STATE_TTL_SECONDS`.
 
 Their latest payloads are available from `/CloseAIS/`, `/Forgery/`, and the
 generic `/AISData/detection-results/<feature-id>/` endpoint. Results are also

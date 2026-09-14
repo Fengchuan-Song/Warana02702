@@ -15,6 +15,7 @@ from .anomaly_detection import (
     build_fusion_detection_results,
     publish_fusion_detection_results,
 )
+from .alert_confirmation import clear_confirmation_state
 from .fusion_state import build_fusion_state, clear_fusion_state
 from .fusion_input import get_fusion_input
 from .inference.data import common_timestamps, prepare_window, preprocess_table
@@ -76,7 +77,17 @@ class MatchingTests(SimpleTestCase):
         self.assertEqual([(row, col) for row, col, _ in matches], [(0, 0), (1, 1)])
 
 
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    AIS_RADAR_ALERT_CONFIRMATION={"default": {"confirmation_frames": 1}},
+)
 class CausalJPDATests(SimpleTestCase):
+    def setUp(self):
+        clear_confirmation_state()
+
+    def tearDown(self):
+        clear_confirmation_state()
+
     @staticmethod
     def _matcher(max_gap=10):
         return JPDAMatcher(
@@ -159,14 +170,17 @@ class CheckpointSmokeTests(SimpleTestCase):
 
 
 @override_settings(
-    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    AIS_RADAR_ALERT_CONFIRMATION={"default": {"confirmation_frames": 1}},
 )
 class FusionStateTests(SimpleTestCase):
     def setUp(self):
         clear_fusion_state()
+        clear_confirmation_state()
 
     def tearDown(self):
         clear_fusion_state()
+        clear_confirmation_state()
 
     def test_state_uses_only_latest_window_and_normalises_ids(self):
         state = build_fusion_state(

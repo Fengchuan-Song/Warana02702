@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from AISData.detection import get_detection_result
+from AISRadar.alert_confirmation import confirm_consecutive_targets
 
 
 FEATURE_ID = "detect-ais-off"
@@ -24,21 +25,34 @@ def _position(target):
 
 
 def detect_close_ais(fusion_state):
-    """Return one alert for every Radar trajectory unmatched by AIS."""
+    """Alert only after a Radar trajectory is unmatched in consecutive frames."""
     source_time = fusion_state.get("source_end_time")
+    confirmation = confirm_consecutive_targets(
+        FEATURE_ID,
+        fusion_state,
+        fusion_state.get("unmatched_radar_targets") or [],
+    )
     results = []
-    for target in fusion_state.get("unmatched_radar_targets") or []:
-        radar_id = str(target.get("id") or "").strip()
+    for confirmed in confirmation["confirmed"]:
+        target = confirmed["target"]
+        radar_id = confirmed["target_id"]
         if not radar_id:
             continue
         position = _position(target)
+        consecutive = confirmed["consecutive_frames"]
         item = {
             "radar_id": radar_id,
             "name": f"雷达目标 {radar_id}",
             "status": "疑似关闭AIS",
             "risk": "高风险",
-            "details": "仅检测到雷达轨迹，未关联到AIS轨迹",
+            "details": f"连续{consecutive}帧仅检测到雷达轨迹，未关联到AIS轨迹",
             "timestamp": source_time,
+            "confirmation_frames": consecutive,
+            "confirmation_frames_required": confirmation[
+                "confirmation_frames_required"
+            ],
+            "first_unmatched_at": confirmed["first_seen"],
+            "last_unmatched_at": confirmed["last_seen"],
         }
         if position:
             item.update(
@@ -57,6 +71,10 @@ def detect_close_ais(fusion_state):
         "timestamp": source_time,
         "computed_at": timezone.now().isoformat(),
         "count": len(results),
+        "candidate_count": confirmation["candidate_count"],
+        "confirmation_frames_required": confirmation[
+            "confirmation_frames_required"
+        ],
         "results": results,
         "message": "Radar-only target detection completed",
     }

@@ -221,6 +221,136 @@ CACHE_TTL = 60 * 5
 AIS_LATEST_STATE_RETENTION_SECONDS = 15 * 60
 AIS_STATIC_STATE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
+# Operational Kafka AIS source. Kafka values are expected to be raw
+# TargetProtoListZ.SerializeToString() bytes. Radar and AIS/Radar fusion
+# classes in the same envelope are deliberately ignored by kafka_ais_worker.
+KAFKA_AIS = {
+    "bootstrap_servers": os.environ.get(
+        "KAFKA_BOOTSTRAP_SERVERS",
+        "127.0.0.1:9092",
+    ).strip(),
+    "topic": os.environ.get("KAFKA_AIS_TOPIC", "union-targets").strip(),
+    "group_id": os.environ.get(
+        "KAFKA_AIS_GROUP_ID",
+        "wanana-ais-worker",
+    ).strip(),
+    "auto_offset_reset": os.environ.get(
+        "KAFKA_AUTO_OFFSET_RESET",
+        "latest",
+    ).strip(),
+    # UnionTargsZV1.proto declares lastTm as uint64 but does not encode its
+    # unit. Change this environment variable if the producer is not using ms.
+    "timestamp_unit": os.environ.get(
+        "KAFKA_AIS_TIMESTAMP_UNIT",
+        "milliseconds",
+    ).strip(),
+    "accept_sim": os.environ.get(
+        "KAFKA_AIS_ACCEPT_SIM",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "y", "on"},
+    "poll_timeout_seconds": float(
+        os.environ.get("KAFKA_AIS_POLL_TIMEOUT_SECONDS", "1")
+    ),
+    "error_retry_seconds": float(
+        os.environ.get("KAFKA_AIS_ERROR_RETRY_SECONDS", "5")
+    ),
+    "security_protocol": os.environ.get(
+        "KAFKA_SECURITY_PROTOCOL",
+        "",
+    ).strip(),
+    "sasl_mechanism": os.environ.get("KAFKA_SASL_MECHANISM", "").strip(),
+    "sasl_username": os.environ.get("KAFKA_SASL_USERNAME", "").strip(),
+    "sasl_password": os.environ.get("KAFKA_SASL_PASSWORD", "").strip(),
+}
+
+# Operational Kafka Radar source. It may share the union-targets topic with
+# AIS, but uses its own consumer group so both workers receive every envelope.
+KAFKA_RADAR = {
+    "bootstrap_servers": os.environ.get(
+        "KAFKA_RADAR_BOOTSTRAP_SERVERS",
+        os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092"),
+    ).strip(),
+    "topic": os.environ.get("KAFKA_RADAR_TOPIC", "union-targets").strip(),
+    "group_id": os.environ.get(
+        "KAFKA_RADAR_GROUP_ID",
+        "wanana-radar-worker",
+    ).strip(),
+    "auto_offset_reset": os.environ.get(
+        "KAFKA_RADAR_AUTO_OFFSET_RESET",
+        os.environ.get("KAFKA_AUTO_OFFSET_RESET", "latest"),
+    ).strip(),
+    "timestamp_unit": os.environ.get(
+        "KAFKA_RADAR_TIMESTAMP_UNIT",
+        "milliseconds",
+    ).strip(),
+    "accept_sim": os.environ.get(
+        "KAFKA_RADAR_ACCEPT_SIM",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "y", "on"},
+    "poll_timeout_seconds": float(
+        os.environ.get("KAFKA_RADAR_POLL_TIMEOUT_SECONDS", "1")
+    ),
+    "error_retry_seconds": float(
+        os.environ.get("KAFKA_RADAR_ERROR_RETRY_SECONDS", "5")
+    ),
+    "security_protocol": os.environ.get(
+        "KAFKA_SECURITY_PROTOCOL",
+        "",
+    ).strip(),
+    "sasl_mechanism": os.environ.get("KAFKA_SASL_MECHANISM", "").strip(),
+    "sasl_username": os.environ.get("KAFKA_SASL_USERNAME", "").strip(),
+    "sasl_password": os.environ.get("KAFKA_SASL_PASSWORD", "").strip(),
+}
+RADAR_LATEST_STATE_RETENTION_SECONDS = 15 * 60
+KAFKA_RADAR_AIS_HISTORY_SECONDS = 30 * 60
+AIS_RADAR_ALERT_CONFIRMATION = {
+    "default": {
+        # Suppress transient JPDA misses: alert on the third consecutive frame.
+        "confirmation_frames": int(
+            os.environ.get("AIS_RADAR_ALERT_CONFIRMATION_FRAMES", "3")
+        ),
+        # A longer interruption starts a new streak rather than continuing one.
+        "max_gap_seconds": float(
+            os.environ.get("AIS_RADAR_ALERT_MAX_GAP_SECONDS", "30")
+        ),
+        "state_ttl_seconds": int(
+            os.environ.get("AIS_RADAR_ALERT_STATE_TTL_SECONDS", "600")
+        ),
+    }
+}
+AIS_RADAR_FUSION_COORDINATOR = {
+    "stream_key": os.environ.get(
+        "AIS_RADAR_FUSION_STREAM_KEY",
+        "ais:radar:fusion:events:v1",
+    ).strip(),
+    "group_name": os.environ.get(
+        "AIS_RADAR_FUSION_GROUP",
+        "ais-radar-fusion-coordinator",
+    ).strip(),
+    # One stable consumer is intentional: after a restart it first reclaims
+    # its own pending entries before reading new stream entries.
+    "consumer_name": os.environ.get(
+        "AIS_RADAR_FUSION_CONSUMER",
+        "coordinator-1",
+    ).strip(),
+    "wait_ms": int(os.environ.get("AIS_RADAR_FUSION_WAIT_MS", "500")),
+    "poll_block_ms": int(
+        os.environ.get("AIS_RADAR_FUSION_POLL_BLOCK_MS", "1000")
+    ),
+    "error_retry_seconds": float(
+        os.environ.get("AIS_RADAR_FUSION_ERROR_RETRY_SECONDS", "1")
+    ),
+    "stream_max_length": int(
+        os.environ.get("AIS_RADAR_FUSION_STREAM_MAX_LENGTH", "0")
+    ),
+    "completed_ttl_seconds": int(
+        os.environ.get("AIS_RADAR_FUSION_COMPLETED_TTL_SECONDS", "604800")
+    ),
+    "max_ais_time_gap_seconds": float(
+        os.environ.get("AIS_RADAR_FUSION_MAX_AIS_GAP_SECONDS", "180")
+    ),
+}
+
 # 为违法事件补存识别前的 AIS 航迹。历史按 MMSI 分开缓存，既能跨越
 # ais_worker / detection_worker 进程读取，也避免一个全局大对象反复序列化。
 AIS_TRAJECTORY_HISTORY_WINDOW_SECONDS = 30 * 60

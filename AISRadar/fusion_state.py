@@ -21,6 +21,7 @@ def _empty_state() -> Dict[str, Any]:
         "source_start_time": None,
         "source_end_time": None,
         "association_method": None,
+        "fusion_event_id": None,
         "count": 0,
         "ais_ids": [],
         "radar_ids": [],
@@ -80,6 +81,7 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
         "source_start_time": latest_window.get("start_time"),
         "source_end_time": latest_window.get("end_time"),
         "association_method": model.get("algorithm"),
+        "fusion_event_id": result.get("fusion_event_id"),
         "count": len(matches),
         "ais_ids": sorted({item["ais_id"] for item in matches}),
         "radar_ids": sorted({item["radar_id"] for item in matches}),
@@ -89,7 +91,11 @@ def build_fusion_state(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def publish_fusion_result(result: Dict[str, Any]) -> Dict[str, Any]:
+def publish_fusion_result(
+    result: Dict[str, Any],
+    *,
+    raise_on_cache_error: bool = False,
+) -> Dict[str, Any]:
     """Store a fresh fusion snapshot in-process and, when available, Redis."""
     global _local_state
     state = build_fusion_state(result)
@@ -99,6 +105,8 @@ def publish_fusion_result(result: Dict[str, Any]) -> Dict[str, Any]:
         cache.set(CACHE_KEY, state, timeout=None)
     except Exception:
         LOGGER.warning("Could not publish AIS/Radar fusion state to cache", exc_info=True)
+        if raise_on_cache_error:
+            raise
     return deepcopy(state)
 
 
