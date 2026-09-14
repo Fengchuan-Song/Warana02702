@@ -24,16 +24,18 @@ class ForgeryDetectionTests(SimpleTestCase):
     @staticmethod
     def _state(second, unmatched=True):
         return {
-                "fusion_event_id": f"radar:0:{second}",
-                "source_end_time": f"2026-08-02T12:00:{second:02d}+00:00",
-                "matches": [{"ais_id": "413000001", "radar_id": "1-1"}],
-                "unmatched_radar_targets": [
-                    {"id": "2-1", "x": 29.7, "y": 122.4}
-                ],
-                "unmatched_ais_targets": ([
-                    {"id": "413000002", "x": 29.8, "y": 122.5}
-                ] if unmatched else []),
-            }
+            "fusion_event_id": f"radar:0:{second}",
+            "source_end_time": f"2026-08-02T12:00:{second:02d}+00:00",
+            "matches": [{"ais_id": "413000001", "radar_id": "1-1"}],
+            "unmatched_radar_targets": [
+                {"id": "2-1", "x": 29.7, "y": 122.4}
+            ],
+            "unmatched_ais_targets": (
+                [{"id": "413000002", "x": 29.8, "y": 122.5}]
+                if unmatched
+                else []
+            ),
+        }
 
     def test_alerts_only_on_third_consecutive_unmatched_frame(self):
         first = detect_forgery(self._state(5))

@@ -66,9 +66,11 @@ def _cache_key(feature_id: str) -> str:
 
 
 def _normalise_id(value: Any) -> str:
+    if value is None:
+        return ""
     if isinstance(value, float) and value.is_integer():
         value = int(value)
-    return str(value or "").strip()
+    return str(value).strip()
 
 
 def _time_seconds(value: Any) -> Optional[float]:
