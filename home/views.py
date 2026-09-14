@@ -5,7 +5,13 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponse,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -22,7 +28,69 @@ from .typhoon_service import TyphoonDataError, get_current_typhoons
 @never_cache
 @ensure_csrf_cookie
 def index(request):
-    return render(request, 'Demo_v10.html')
+    return render(
+        request,
+        "Demo_v10.html",
+        {
+            "amap_js_api_key": settings.AMAP_JS_API_KEY,
+            "amap_js_security_code": settings.AMAP_JS_SECURITY_CODE,
+            "amap_online_timeout_ms": settings.AMAP_ONLINE_TIMEOUT_MS,
+        },
+    )
+
+
+OFFLINE_MAP_ROOT = Path(settings.BASE_DIR) / "Maps" / "mapabc" / "roadmap"
+OFFLINE_MAP_MIN_ZOOM = 1
+OFFLINE_MAP_MAX_ZOOM = 15
+OFFLINE_MAP_ASSET_ROOT = Path(__file__).resolve().parent / "static" / "home"
+OFFLINE_MAP_ASSETS = {
+    "leaflet.js": ("vendor/leaflet/leaflet.js", "text/javascript; charset=utf-8"),
+    "leaflet.css": ("vendor/leaflet/leaflet.css", "text/css; charset=utf-8"),
+    "offline-amap.js": ("offline-amap.js", "text/javascript; charset=utf-8"),
+    "offline-amap.css": ("offline-amap.css", "text/css; charset=utf-8"),
+    "map-provider-loader.js": (
+        "map-provider-loader.js",
+        "text/javascript; charset=utf-8",
+    ),
+}
+
+
+@require_GET
+def offline_map_asset(request, asset_name):
+    """Serve the small, allow-listed set of files required by the map engine."""
+    asset = OFFLINE_MAP_ASSETS.get(asset_name)
+    if asset is None:
+        raise Http404("离线地图静态资源不存在")
+
+    relative_path, content_type = asset
+    asset_path = OFFLINE_MAP_ASSET_ROOT / relative_path
+    if not asset_path.is_file():
+        raise Http404("离线地图静态资源不存在")
+
+    response = FileResponse(asset_path.open("rb"), content_type=content_type)
+    response["Cache-Control"] = "public, max-age=2592000, immutable"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@require_GET
+def offline_map_tile(request, zoom, tile_x, tile_y):
+    """Serve a pre-generated XYZ map tile from the local Maps directory."""
+    if not OFFLINE_MAP_MIN_ZOOM <= zoom <= OFFLINE_MAP_MAX_ZOOM:
+        raise Http404("离线地图缩放级别不存在")
+
+    max_coordinate = (1 << zoom) - 1
+    if not (0 <= tile_x <= max_coordinate and 0 <= tile_y <= max_coordinate):
+        raise Http404("离线地图瓦片坐标无效")
+
+    tile_path = OFFLINE_MAP_ROOT / str(zoom) / str(tile_x) / f"{tile_y}.png"
+    if not tile_path.is_file():
+        raise Http404("离线地图瓦片不存在")
+
+    response = FileResponse(tile_path.open("rb"), content_type="image/png")
+    response["Cache-Control"] = "public, max-age=2592000, immutable"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @never_cache

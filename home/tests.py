@@ -264,3 +264,69 @@ class ShipTrajectoryTemplateIntegrationTests(SimpleTestCase):
         self.assertIn("parameters.set('end', endAt)", content)
         self.assertNotIn("AMap.event.addListener(shipInfoWindow", content)
         self.assertIn('id="violation-trajectory-status"', content)
+
+
+class MapDistanceTemplateIntegrationTests(SimpleTestCase):
+    def test_dashboard_supports_two_point_distance_measurement(self):
+        response = self.client.get(reverse("index"))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="btn-distance"', content)
+        self.assertIn('id="distance-measure-control"', content)
+        self.assertIn("toggleDistanceMeasurement", content)
+        self.assertIn("handleDistanceMeasureClick", content)
+        self.assertIn("MapDistance.distanceMetres", content)
+        self.assertIn("MapDistance.totalDistanceMetres", content)
+        self.assertIn("MaritimeCoordinates.mapToGps", content)
+        self.assertGreaterEqual(content.count("bubble: true"), 7)
+        self.assertIn(
+            "if (polygonAreaPointSelection || isDistanceMeasurementActive) return;",
+            content,
+        )
+
+
+class OfflineMapIntegrationTests(SimpleTestCase):
+    def test_dashboard_prefers_online_map_and_keeps_offline_fallback(self):
+        response = self.client.get(reverse("index"))
+        content = response.content.decode("utf-8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("/maps/assets/leaflet.js", content)
+        self.assertIn("/maps/assets/map-provider-loader.js", content)
+        self.assertIn("offlineScriptUrl: '/maps/assets/offline-amap.js'", content)
+        self.assertIn("/maps/tiles/{z}/{x}/{y}.png", content)
+        self.assertIn("webapi.amap.com/maps?v=2.0", content)
+        self.assertIn("plugin=AMap.MouseTool", content)
+        self.assertIn("MapProviderLoader.load()", content)
+        self.assertIn("MapProviderLoader.useOffline()", content)
+        self.assertIn("waitForOnlineMapReady", content)
+        self.assertIn("卫星图（离线不可用）", content)
+        self.assertIn("isolation: isolate", content)
+        self.assertIn("#amap-instance", content)
+
+    def test_existing_offline_tile_is_served_with_cache_headers(self):
+        response = self.client.get("/maps/tiles/1/1/0.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertIn("immutable", response["Cache-Control"])
+
+    def test_offline_map_assets_are_served_without_staticfiles_handler(self):
+        for asset_url, content_type in (
+            ("/maps/assets/leaflet.js", "text/javascript"),
+            ("/maps/assets/leaflet.css", "text/css"),
+            ("/maps/assets/offline-amap.js", "text/javascript"),
+            ("/maps/assets/offline-amap.css", "text/css"),
+            ("/maps/assets/map-provider-loader.js", "text/javascript"),
+        ):
+            with self.subTest(asset_url=asset_url):
+                response = self.client.get(asset_url)
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response["Content-Type"].startswith(content_type))
+
+        self.assertEqual(self.client.get("/maps/assets/unknown.js").status_code, 404)
+
+    def test_invalid_or_missing_offline_tile_returns_404(self):
+        self.assertEqual(self.client.get("/maps/tiles/0/0/0.png").status_code, 404)
+        self.assertEqual(self.client.get("/maps/tiles/15/0/0.png").status_code, 404)

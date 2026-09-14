@@ -36,6 +36,16 @@ ALLOWED_HOSTS.extend(
     if host.strip()
 )
 
+# The browser prefers the online AMap JS API and falls back to the bundled
+# Leaflet/XYZ implementation when the API cannot be reached or initialized.
+# A different domain-bound browser key can be supplied by the deployment.
+AMAP_JS_API_KEY = os.environ.get(
+    "AMAP_JS_API_KEY",
+    "74a1c6075952477f257002e0664092d6",
+).strip()
+AMAP_JS_SECURITY_CODE = os.environ.get("AMAP_JS_SECURITY_CODE", "").strip()
+AMAP_ONLINE_TIMEOUT_MS = int(os.environ.get("AMAP_ONLINE_TIMEOUT_MS", "10000"))
+
 # Both launch profiles expose the same browser and WebSocket URLs. The
 # process-level setting selects which isolated AIS state backs /ws/ais/.
 AIS_DEFAULT_SOURCE = os.environ.get(

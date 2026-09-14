@@ -5,8 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>海域违法事件融合预警系统</title>
     
-    <script type="text/javascript" 
-            src="https://webapi.amap.com/maps?v=2.0&key=74a1c6075952477f257002e0664092d6&plugin=AMap.MouseTool"></script>
+    <link rel="stylesheet" href="{% url 'offline_map_asset' 'leaflet.css' %}">
+    <link rel="stylesheet" href="{% url 'offline_map_asset' 'offline-amap.css' %}">
+    <script src="{% url 'offline_map_asset' 'leaflet.js' %}"></script>
+    <script>
+        window.OFFLINE_MAP_CONFIG = Object.freeze({
+            tileUrl: '/maps/tiles/{z}/{x}/{y}.png',
+            minZoom: 1,
+            maxZoom: 15,
+        });
+        window.MAP_PROVIDER_CONFIG = Object.freeze({
+            onlineUrl: 'https://webapi.amap.com/maps?v=2.0&key={{ amap_js_api_key|escapejs }}&plugin=AMap.MouseTool',
+            securityJsCode: '{{ amap_js_security_code|escapejs }}',
+            onlineTimeoutMs: {{ amap_online_timeout_ms }},
+            offlineScriptUrl: '{% url "offline_map_asset" "offline-amap.js" %}',
+        });
+    </script>
+    <script src="{% url 'offline_map_asset' 'map-provider-loader.js' %}"></script>
 
     <style>
         /* ==================== CSS 样式 ==================== */
@@ -49,6 +64,7 @@
 
         /* 1. 左侧固定工具栏 */
         #left-toolbar {
+            position: relative;
             width: var(--toolbar-width);
             height: 100%;
             background-color: var(--color-sidebar-dark);
@@ -126,8 +142,17 @@
 		    position: relative;
 		    height: 100%;
 		    flex-grow: 1; 
+		    min-width: 0;
+		    z-index: 0;
+		    isolation: isolate;
             /* margin-left: var(--toolbar-width); */
 		}
+
+        #amap-instance {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
 		
         /* ==================== 船舶目标列表面板 (List Panel) ==================== */
         .sidebar-header h2 {
@@ -793,6 +818,24 @@
             border-color: var(--color-alert-red);
             background: rgba(229, 62, 62, 0.35);
         }
+        #distance-measure-control {
+            right: 10px;
+            bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: min(430px, calc(100% - 40px));
+            color: white;
+        }
+        #distance-measure-control[hidden] {
+            display: none;
+        }
+        #distance-measure-status {
+            line-height: 1.45;
+        }
+        #distance-measure-control .fence-button {
+            flex: 0 0 auto;
+        }
         .sensor-options {
             display: flex;
             flex-wrap: wrap;
@@ -1120,6 +1163,18 @@
             <div id="btn-config" class="toolbar-icon" onclick="togglePanel('config-panel-container')">
                 ⚙️<span class="icon-label">图层配置</span>
             </div>
+            <div
+                id="btn-distance"
+                class="toolbar-icon"
+                role="button"
+                tabindex="0"
+                aria-pressed="false"
+                title="在地图上连续选点测量总距离"
+                onclick="toggleDistanceMeasurement()"
+                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleDistanceMeasurement(); }"
+            >
+                📏<span class="icon-label">测距</span>
+            </div>
             <div id="btn-camera" class="toolbar-icon" onclick="togglePanel('camera-panel-container')">
                 📹<span class="icon-label">摄像头</span>
             </div>
@@ -1190,9 +1245,9 @@
                         <span class="map-tile-preview normal" aria-hidden="true"></span>
                         <span>地图</span>
                     </button>
-                    <button id="base-map-terrain" class="tile-option" type="button" data-base-map="terrain" aria-pressed="false">
+                    <button id="base-map-terrain" class="tile-option" type="button" data-base-map="terrain" aria-pressed="false" disabled title="离线地图未安装卫星瓦片">
                         <span class="map-tile-preview terrain" aria-hidden="true"></span>
-                        <span>卫星图</span>
+                        <span id="base-map-terrain-label">卫星图（离线不可用）</span>
                     </button>
                 </div>
             </div>
@@ -1613,6 +1668,15 @@
                 <h2>违法事件识别记录</h2>
             </div>
             <div class="violation-record-filters">
+                <label class="fence-form-label" for="violation-record-id">记录 ID</label>
+                <input
+                    id="violation-record-id"
+                    class="fence-form-control"
+                    type="search"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="按 record_id 精确查询"
+                >
                 <select id="violation-record-feature" class="fence-form-control">
                     <option value="">全部违法类型</option>
                 </select>
@@ -2063,6 +2127,16 @@
                 <span id="violation-trajectory-status">AIS轨迹已显示</span>
                 <button class="fence-button" type="button" onclick="clearViolationTrajectory()">关闭轨迹</button>
             </div>
+            <div
+                id="distance-measure-control"
+                class="overlay-card"
+                role="status"
+                aria-live="polite"
+                hidden
+            >
+                <span id="distance-measure-status">请在地图上选择第一个点</span>
+                <button class="fence-button" type="button" onclick="clearDistanceMeasurement()">清除</button>
+            </div>
         </div>
     </div>
     
@@ -2185,6 +2259,9 @@
         let activeViolationTrajectoryMmsi = null;
         let activeViolationTrajectoryPointCount = 0;
         let violationTrajectoryLoadSequence = 0;
+        let isDistanceMeasurementActive = false;
+        let distanceMeasurementPoints = [];
+        let distanceMeasurementOverlays = [];
         let violationChartScale = 1;
         const VIOLATION_CHART_COLORS = [
             '#E53E3E', '#007BFF', '#48BB78', '#FFC107', '#9F7AEA',
@@ -3758,6 +3835,7 @@
                 return;
             }
 
+            if (isDistanceMeasurementActive) stopDistanceMeasurement();
             isCameraMapPickActive = true;
             const button = document.getElementById('camera-map-pick');
             button.classList.add('active');
@@ -4176,6 +4254,20 @@
             });
         }
 
+        function updateMapProviderUi(provider) {
+            const terrainButton = document.getElementById('base-map-terrain');
+            const terrainLabel = document.getElementById('base-map-terrain-label');
+            const isOnline = provider === 'online';
+            terrainButton.disabled = !isOnline;
+            terrainButton.title = isOnline
+                ? '切换到高德卫星图'
+                : '离线地图未安装卫星瓦片';
+            terrainLabel.textContent = isOnline
+                ? '卫星图'
+                : '卫星图（离线不可用）';
+            document.documentElement.dataset.mapProvider = provider;
+        }
+
         function setupInfoLayerButtons() {
             document.querySelectorAll('.info-button').forEach(button => {
                 button.addEventListener('click', () => {
@@ -4284,7 +4376,7 @@
                     bubble: true,
                 });
                 polygon.on('click', event => {
-                    if (polygonAreaPointSelection) return;
+                    if (polygonAreaPointSelection || isDistanceMeasurementActive) return;
                     showMaritimeZoneInfo(feature, event.lnglat || path[0]);
                 });
                 nextOverlays[layerKey].push(polygon);
@@ -4842,19 +4934,66 @@
         // ---------------------------------------------------
 
 
-        function initMap() {
-            console.log("initMap done:"); // <-- 调试打印 1
-            if (typeof AMap === 'undefined') {
-                console.error('高德地图 JS API 未加载。请检查 Key 和 URL。');
-                return;
-            }
-
-            map = new AMap.Map('amap-instance', {
+        function createMapInstance() {
+            return new AMap.Map('amap-instance', {
                 viewMode: '3D',
                 zoom: 9,
                 center: [113.280637, 23.125178],
                 mapStyle: 'amap://styles/normal'
             });
+        }
+
+        function waitForOnlineMapReady(candidateMap) {
+            return new Promise((resolve, reject) => {
+                let settled = false;
+                const timeoutMs = Number(window.MAP_PROVIDER_CONFIG.onlineTimeoutMs) || 10000;
+                const timeoutId = window.setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    reject(new Error(`在线地图在 ${timeoutMs}ms 内未完成初始化`));
+                }, timeoutMs);
+
+                candidateMap.on('complete', () => {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timeoutId);
+                    resolve();
+                });
+            });
+        }
+
+        function discardMapInstance() {
+            if (map && typeof map.destroy === 'function') {
+                try {
+                    map.destroy();
+                } catch (error) {
+                    console.warn('清理在线地图实例失败。', error);
+                }
+            }
+            map = null;
+            document.getElementById('amap-instance').replaceChildren();
+        }
+
+        async function initMap() {
+            let provider;
+            try {
+                provider = await window.MapProviderLoader.load();
+                map = createMapInstance();
+                if (provider === 'online') await waitForOnlineMapReady(map);
+            } catch (error) {
+                console.warn('高德在线地图加载失败，正在切换离线地图。', error);
+                discardMapInstance();
+                try {
+                    provider = await window.MapProviderLoader.useOffline();
+                    map = createMapInstance();
+                } catch (offlineError) {
+                    console.error('在线和离线地图均加载失败。', offlineError);
+                    return false;
+                }
+            }
+
+            updateMapProviderUi(provider);
+            console.log(`地图初始化完成：${provider === 'online' ? '在线高德' : '本地离线'}`);
 
             map.on('zoomend', switchMarkersOnZoom);
             setupCameraConfiguration();
@@ -4961,6 +5100,7 @@
             loadSmugglingZones();
             loadSmugglingPorts();
             loadSmugglingPermits();
+            return true;
         }
 
         // ----------------- 【重构函数】 loadInitialShips() 改名为 updateMarkersAndList() -----------------
@@ -5280,6 +5420,7 @@
                                 <span>${escapeHtml(record.event_type)}</span>
                                 <span class="violation-record-risk">${escapeHtml(record.risk_level || record.status || '预警')}</span>
                             </div>
+                            <div class="violation-record-meta">记录 ID：${escapeHtml(record.id)}</div>
                             <div class="violation-record-meta">目标：${escapeHtml(target)}</div>
                             ${record.target_name ? `<div class="violation-record-meta">名称：${escapeHtml(record.target_name)}</div>` : ''}
                             <div class="violation-record-meta">最后识别：${formatViolationRecordTime(record.last_detected_at)}</div>
@@ -5321,10 +5462,12 @@
             const summary = document.getElementById('violation-record-summary');
             summary.textContent = '正在读取违法事件记录……';
             const parameters = new URLSearchParams({page: String(page), page_size: '20'});
+            const recordId = document.getElementById('violation-record-id').value.trim();
             const featureId = document.getElementById('violation-record-feature').value;
             const target = document.getElementById('violation-record-target').value.trim();
             const start = document.getElementById('violation-record-start').value;
             const end = document.getElementById('violation-record-end').value;
+            if (recordId) parameters.set('record_id', recordId);
             if (featureId) parameters.set('feature_id', featureId);
             if (target) parameters.set('target', target);
             if (start) parameters.set('start', start);
@@ -5343,6 +5486,7 @@
         }
 
         function resetViolationRecordFilters() {
+            document.getElementById('violation-record-id').value = '';
             document.getElementById('violation-record-feature').value = '';
             document.getElementById('violation-record-target').value = '';
             document.getElementById('violation-record-start').value = '';
@@ -5701,6 +5845,7 @@
             const targetButton = document.getElementById(`btn-${panelId.split('-')[0]}`);
             const isActive = targetPanel.classList.contains('active');
             if (panelId !== 'maritime-panel-container' || isActive) clearMaritimePreview();
+            if (isDistanceMeasurementActive) stopDistanceMeasurement();
 
             if (isCameraMapPickActive && (panelId !== 'camera-panel-container' || isActive)) {
                 stopCameraMapPick();
@@ -5878,9 +6023,13 @@
                     fillColor: fence.is_active ? '#E53E3E' : '#718096',
                     fillOpacity: fence.is_active ? 0.18 : 0.08,
                     zIndex: 40,
+                    bubble: true,
                 });
                 polygon.setMap(map);
-                polygon.on('click', () => editFence(fence.id));
+                polygon.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editFence(fence.id);
+                });
                 fencePolygons.set(fence.id, polygon);
             });
         }
@@ -6125,6 +6274,7 @@
             }
             stopPolygonAreaPointSelection();
             if (isCameraMapPickActive) stopCameraMapPick();
+            if (isDistanceMeasurementActive) stopDistanceMeasurement();
 
             const selection = {
                 kind,
@@ -6308,6 +6458,7 @@
                     fillColor: area.is_active ? '#805AD5' : '#718096',
                     fillOpacity: area.is_active ? 0.16 : 0.06,
                     zIndex: 43,
+                    bubble: true,
                 });
                 const center = [
                     (Number(area.min_lon) + Number(area.max_lon)) / 2,
@@ -6319,6 +6470,7 @@
                     anchor: 'center',
                     cursor: 'pointer',
                     zIndex: 44,
+                    bubble: true,
                     style: {
                         padding: '4px 8px',
                         border: `1px solid ${area.is_active ? '#9F7AEA' : '#718096'}`,
@@ -6328,8 +6480,14 @@
                         fontSize: '12px',
                     },
                 });
-                polygon.on('click', () => editWanderingArea(area.id));
-                label.on('click', () => editWanderingArea(area.id));
+                polygon.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editWanderingArea(area.id);
+                });
+                label.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editWanderingArea(area.id);
+                });
                 polygon.setMap(map);
                 label.setMap(map);
                 wanderingAreaOverlays.set(area.id, {polygon, label});
@@ -6637,6 +6795,7 @@
                     fillColor: area.is_active ? '#E53E3E' : '#718096',
                     fillOpacity: area.is_active ? 0.18 : 0.06,
                     zIndex: 47,
+                    bubble: true,
                 });
                 const center = [
                     (Number(area.min_lon) + Number(area.max_lon)) / 2,
@@ -6649,6 +6808,7 @@
                     cursor: 'pointer',
                     zIndex: 48,
                     title: area.reason,
+                    bubble: true,
                     style: {
                         padding: '4px 8px',
                         border: `1px solid ${area.is_active ? '#F56565' : '#718096'}`,
@@ -6658,8 +6818,14 @@
                         fontSize: '12px',
                     },
                 });
-                polygon.on('click', () => editIllegalStayingArea(area.id));
-                label.on('click', () => editIllegalStayingArea(area.id));
+                polygon.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editIllegalStayingArea(area.id);
+                });
+                label.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editIllegalStayingArea(area.id);
+                });
                 polygon.setMap(map);
                 label.setMap(map);
                 illegalStayingAreaOverlays.set(area.id, {polygon, label});
@@ -7872,9 +8038,13 @@
                     fillColor: color,
                     fillOpacity: zone.is_active ? 0.18 : 0.07,
                     zIndex: 38,
+                    bubble: true,
                 });
                 polygon.setMap(map);
-                polygon.on('click', () => editSmugglingZone(zone.id));
+                polygon.on('click', () => {
+                    if (isDistanceMeasurementActive) return;
+                    editSmugglingZone(zone.id);
+                });
                 smugglingZonePolygons.set(zone.id, polygon);
             });
         }
@@ -8161,6 +8331,7 @@
                 );
                 return;
             }
+            if (isDistanceMeasurementActive) stopDistanceMeasurement();
             openManagementPanel(
                 'smuggling-panel-container',
                 'btn-smuggling'
@@ -8476,6 +8647,7 @@
                 setFenceMessage('地图尚未加载完成，请稍后重试', true);
                 return;
             }
+            if (isDistanceMeasurementActive) stopDistanceMeasurement();
             openFencePanel();
             const mouseTool = new AMap.MouseTool(map);
             mouseTool.polygon({
@@ -8492,6 +8664,190 @@
                 setFenceMessage(`已获取 ${vertices.length} 个顶点，请填写名称后保存`);
             });
             setFenceMessage('请在地图上逐点单击，双击最后一个点结束绘制');
+        }
+
+        function setDistanceMeasureStatus(message) {
+            const control = document.getElementById('distance-measure-control');
+            document.getElementById('distance-measure-status').textContent = message;
+            control.hidden = false;
+        }
+
+        function removeDistanceMeasurementOverlays() {
+            distanceMeasurementOverlays.forEach(overlay => overlay.setMap(null));
+            distanceMeasurementOverlays = [];
+        }
+
+        function clearDistanceMeasurement() {
+            removeDistanceMeasurementOverlays();
+            distanceMeasurementPoints = [];
+            const control = document.getElementById('distance-measure-control');
+            if (isDistanceMeasurementActive) {
+                setDistanceMeasureStatus('请点击地图添加第一个测距点；按 Esc 可退出');
+            } else {
+                control.hidden = true;
+            }
+        }
+
+        function stopDistanceMeasurement({keepResult = true} = {}) {
+            if (map && isDistanceMeasurementActive) {
+                map.off('click', handleDistanceMeasureClick);
+                map.setDefaultCursor('default');
+            }
+            document.removeEventListener('keydown', handleDistanceMeasureKeydown);
+            isDistanceMeasurementActive = false;
+            const button = document.getElementById('btn-distance');
+            button.classList.remove('active');
+            button.setAttribute('aria-pressed', 'false');
+            if (!keepResult || distanceMeasurementPoints.length < 2) {
+                clearDistanceMeasurement();
+            }
+        }
+
+        function createDistanceEndpoint(position, label) {
+            const marker = new AMap.CircleMarker({
+                map,
+                center: position,
+                radius: 7,
+                fillColor: '#F6E05E',
+                fillOpacity: 1,
+                strokeColor: '#0C101B',
+                strokeWeight: 3,
+                zIndex: 180,
+                bubble: false,
+            });
+            const text = new AMap.Text({
+                map,
+                position,
+                text: label,
+                anchor: 'bottom-center',
+                offset: new AMap.Pixel(0, -10),
+                zIndex: 181,
+                style: {
+                    padding: '2px 6px',
+                    border: '1px solid #F6E05E',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(12, 16, 27, 0.92)',
+                    color: '#F6E05E',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                },
+            });
+            distanceMeasurementOverlays.push(marker, text);
+        }
+
+        function measurementGpsPoint(mapPoint) {
+            try {
+                return MaritimeCoordinates.mapToGps(mapPoint);
+            } catch (error) {
+                console.warn('测距坐标转换失败，改用地图坐标计算。', error);
+                return mapPoint;
+            }
+        }
+
+        function renderDistanceMeasurement() {
+            removeDistanceMeasurementOverlays();
+            distanceMeasurementPoints.forEach((point, index) => {
+                createDistanceEndpoint(point, String(index + 1));
+                if (index === 0) return;
+                const previous = distanceMeasurementPoints[index - 1];
+                const segmentDistance = MapDistance.distanceMetres(
+                    measurementGpsPoint(previous),
+                    measurementGpsPoint(point)
+                );
+                const formattedSegment = MapDistance.formatDistance(segmentDistance);
+                const midpoint = [
+                    (previous[0] + point[0]) / 2,
+                    (previous[1] + point[1]) / 2,
+                ];
+                distanceMeasurementOverlays.push(new AMap.Polyline({
+                    map,
+                    path: [previous, point],
+                    strokeColor: '#F6E05E',
+                    strokeWeight: 4,
+                    strokeOpacity: 0.95,
+                    strokeStyle: 'dashed',
+                    zIndex: 179,
+                    bubble: false,
+                }));
+                distanceMeasurementOverlays.push(new AMap.Text({
+                    map,
+                    position: midpoint,
+                    text: formattedSegment,
+                    anchor: 'bottom-center',
+                    offset: new AMap.Pixel(0, -8),
+                    zIndex: 182,
+                    style: {
+                        padding: '5px 9px',
+                        border: '1px solid #F6E05E',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(12, 16, 27, 0.94)',
+                        color: '#FFFFFF',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        whiteSpace: 'nowrap',
+                    },
+                }));
+            });
+
+            if (distanceMeasurementPoints.length < 2) {
+                setDistanceMeasureStatus(
+                    '已选择第 1 个点，请继续点击添加节点；按 Esc 可退出'
+                );
+                return;
+            }
+            const gpsPoints = distanceMeasurementPoints.map(measurementGpsPoint);
+            const totalDistance = MapDistance.totalDistanceMetres(gpsPoints);
+            setDistanceMeasureStatus(
+                `已选择 ${distanceMeasurementPoints.length} 个点，` +
+                `总距离：${MapDistance.formatDistance(totalDistance)}；` +
+                '继续点击可追加，点击左侧“测距”结束'
+            );
+        }
+
+        function handleDistanceMeasureClick(event) {
+            const point = [
+                Number(event.lnglat.getLng()),
+                Number(event.lnglat.getLat()),
+            ];
+            if (!point.every(Number.isFinite)) {
+                setDistanceMeasureStatus('未能读取地图坐标，请重新选点');
+                return;
+            }
+            distanceMeasurementPoints.push(point);
+            renderDistanceMeasurement();
+        }
+
+        function handleDistanceMeasureKeydown(event) {
+            if (event.key !== 'Escape') return;
+            stopDistanceMeasurement({keepResult: false});
+        }
+
+        function toggleDistanceMeasurement() {
+            if (!map) {
+                window.alert('地图尚未加载完成，请稍后重试');
+                return;
+            }
+            if (isDistanceMeasurementActive) {
+                stopDistanceMeasurement({keepResult: true});
+                return;
+            }
+            if (isCameraMapPickActive) stopCameraMapPick();
+            stopPolygonAreaPointSelection();
+            if (smugglingZoneMouseTool) clearSmugglingZoneDraft();
+            removeDistanceMeasurementOverlays();
+            distanceMeasurementPoints = [];
+            document.querySelectorAll('.side-panel-container')
+                .forEach(panel => panel.classList.remove('active'));
+            document.querySelectorAll('.toolbar-icon')
+                .forEach(button => button.classList.remove('active'));
+            isDistanceMeasurementActive = true;
+            const button = document.getElementById('btn-distance');
+            button.classList.add('active');
+            button.setAttribute('aria-pressed', 'true');
+            map.setDefaultCursor('crosshair');
+            map.on('click', handleDistanceMeasureClick);
+            document.addEventListener('keydown', handleDistanceMeasureKeydown);
+            setDistanceMeasureStatus('请点击地图添加第一个测距点；按 Esc 可退出');
         }
 
         // 更改选中船舶的颜色
@@ -8558,13 +8914,14 @@
         }
 
 
+        {% include 'map_distance.js' %}
         {% include 'maritime_coordinates.js' %}
         {% include 'maritime_zone_script.html' %}
 
         // 【修改】页面加载完成后初始化地图和功能选项的开关状态
-        window.onload = function() {
+        window.onload = async function() {
             setupMaritimeManagement();
-            initMap();
+            await initMap();
             setupBaseMapSelector();
             setupInfoLayerButtons();
             setupInitialToggles();

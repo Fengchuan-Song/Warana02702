@@ -19,3 +19,9 @@ system.md
 warana_mysqlsh_20260904
 files
 results4test
+processed20260831.zip
+processed20260831
+test/
+Maps/
+scripts/plot*
+AISData/management/commands/export_event_trajectories.py

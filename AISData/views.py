@@ -244,8 +244,17 @@ def violation_record_list(request):
     # metadata for persistence isolation, but do not hide records from earlier
     # operational runs or simulation batches.
     records = ViolationEventRecord.objects.all()
+    record_id = request.GET.get("record_id", "").strip()
     feature_id = request.GET.get("feature_id", "").strip()
     target = request.GET.get("target", "").strip()
+    if record_id:
+        if not record_id.isdigit() or int(record_id) < 1:
+            return JsonResponse(
+                {"success": False, "message": "record_id 必须为正整数"},
+                status=400,
+                json_dumps_params={"ensure_ascii": False},
+            )
+        records = records.filter(pk=int(record_id))
     if feature_id:
         records = records.filter(feature_id=feature_id)
     if target:

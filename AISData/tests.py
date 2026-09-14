@@ -2751,6 +2751,44 @@ class ViolationRecordTests(TestCase):
         self.assertEqual(detail_response.status_code, 200)
         self.assertEqual(len(detail_response.json()["record"]["ais_trajectory"]), 1)
 
+    def test_record_list_filters_by_record_id(self):
+        first = ViolationEventRecord.objects.create(
+            event_key="record-id-filter-first",
+            fingerprint="record-id-filter-first",
+            feature_id="detect-illegalStaying",
+            event_type="非法驻留",
+            first_detected_at=parse_datetime("2026-08-03T04:00:00Z"),
+            last_detected_at=parse_datetime("2026-08-03T04:00:00Z"),
+        )
+        ViolationEventRecord.objects.create(
+            event_key="record-id-filter-second",
+            fingerprint="record-id-filter-second",
+            feature_id="detect-abnormalStaying",
+            event_type="异常停泊",
+            first_detected_at=parse_datetime("2026-08-03T04:01:00Z"),
+            last_detected_at=parse_datetime("2026-08-03T04:01:00Z"),
+        )
+
+        response = self.client.get(
+            reverse("violation_record_list"),
+            {"record_id": str(first.id)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["statistics"]["total"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], first.id)
+
+    def test_record_list_rejects_invalid_record_id(self):
+        response = self.client.get(
+            reverse("violation_record_list"),
+            {"record_id": "not-a-number"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["success"])
+        self.assertIn("正整数", response.json()["message"])
+
     def test_ship_trajectory_api_queries_by_mmsi_and_deduplicates_events(self):
         first_payload = self._payload("2026-08-03T04:00:00Z")
         second_payload = self._payload("2026-08-03T04:00:00Z")

@@ -9,10 +9,22 @@ from .views import (
     guangdong_marine_weather,
     index,
     model_parameter_page,
+    offline_map_asset,
+    offline_map_tile,
 )
 
 urlpatterns = [
     path("", index, name='index'),
+    path(
+        "maps/assets/<str:asset_name>",
+        offline_map_asset,
+        name="offline_map_asset",
+    ),
+    path(
+        "maps/tiles/<int:zoom>/<int:tile_x>/<int:tile_y>.png",
+        offline_map_tile,
+        name="offline_map_tile",
+    ),
     path(
         "model-parameters/",
         model_parameter_page,

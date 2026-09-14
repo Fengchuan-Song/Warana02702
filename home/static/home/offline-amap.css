@@ -1,0 +1,77 @@
+.offline-amap {
+    position: relative;
+    z-index: 0;
+    isolation: isolate;
+    overflow: hidden;
+    background: #d7e8ee;
+}
+
+.offline-amap .leaflet-container {
+    width: 100%;
+    height: 100%;
+    background: #d7e8ee;
+    font: inherit;
+}
+
+.offline-amap .leaflet-tile {
+    image-rendering: auto;
+}
+
+.offline-amap .leaflet-tile-pane {
+    background: #d7e8ee;
+}
+
+.offline-amap-marker {
+    border: 0;
+    background: transparent;
+}
+
+.offline-amap-marker-body {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: center center;
+    white-space: nowrap;
+}
+
+.offline-amap-marker-body > img {
+    display: block;
+    max-width: none;
+}
+
+.offline-amap-text {
+    line-height: normal;
+    white-space: nowrap;
+}
+
+.offline-amap-popup.leaflet-popup-content-wrapper,
+.offline-amap-popup .leaflet-popup-content-wrapper {
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.offline-amap-popup .leaflet-popup-content {
+    margin: 0;
+    width: auto !important;
+}
+
+.offline-amap-popup .leaflet-popup-tip-container,
+.offline-amap-popup .leaflet-popup-close-button {
+    display: none;
+}
+
+.offline-amap-drawing-hint {
+    position: absolute;
+    z-index: 1000;
+    left: 50%;
+    top: 12px;
+    transform: translateX(-50%);
+    padding: 7px 12px;
+    border-radius: 4px;
+    color: #fff;
+    background: rgba(12, 16, 27, .88);
+    pointer-events: none;
+}
