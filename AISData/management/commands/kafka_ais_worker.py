@@ -1,4 +1,4 @@
-"""Consume raw Protobuf AIS envelopes from Kafka and publish operational state."""
+"""Consume JSON AIS targets from Kafka and publish operational state."""
 
 import time
 
@@ -6,13 +6,11 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from google.protobuf.message import DecodeError
-
 from AISData.ais_state import merge_ais_state
 from AISData.behavior_recognition import update_behavior_results
 from AISData.consumers import AisConsumer
 from AISData.detection_queue import enqueue_all_detections
-from AISData.kafka_protobuf import TIMESTAMP_DIVISORS, parse_ais_protobuf
+from AISData.kafka_json import TIMESTAMP_DIVISORS, parse_ais_json
 from AISData.normalization import (
     ais_record_kind,
     normalise_dynamic_ais_record,
@@ -24,7 +22,7 @@ from AISRadar.fusion_coordination import publish_ais_ingest_progress
 
 class Command(BaseCommand):
     help = (
-        "Consumes raw TargetProtoListZ messages from Kafka, retains AIS data, "
+        "Consumes JSON target messages from Kafka, retains AIS data, "
         "and publishes the operational Redis/WebSocket/model state."
     )
 
@@ -210,7 +208,7 @@ class Command(BaseCommand):
                     continue
 
                 try:
-                    parsed = parse_ais_protobuf(
+                    parsed = parse_ais_json(
                         message.value(),
                         timestamp_unit=config.get(
                             "timestamp_unit",
@@ -233,7 +231,7 @@ class Command(BaseCommand):
                         message.offset(),
                         event_time,
                     )
-                except (DecodeError, TypeError, ValueError) as exc:
+                except (TypeError, ValueError) as exc:
                     # A malformed payload cannot recover by blocking its Kafka
                     # partition forever. Log metadata, skip it and commit.
                     self.stderr.write(

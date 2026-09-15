@@ -104,7 +104,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "AISData.maritime_zone_registry.MaritimeZoneSnapshotMiddleware",
 ]
 
@@ -229,7 +229,7 @@ KAFKA_AIS = {
         "KAFKA_BOOTSTRAP_SERVERS",
         "127.0.0.1:9092",
     ).strip(),
-    "topic": os.environ.get("KAFKA_AIS_TOPIC", "union-targets").strip(),
+    "topic": os.environ.get("KAFKA_AIS_TOPIC", "ZHUnionTargetTopicV3").strip(),
     "group_id": os.environ.get(
         "KAFKA_AIS_GROUP_ID",
         "wanana-ais-worker",
@@ -270,7 +270,7 @@ KAFKA_RADAR = {
         "KAFKA_RADAR_BOOTSTRAP_SERVERS",
         os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092"),
     ).strip(),
-    "topic": os.environ.get("KAFKA_RADAR_TOPIC", "union-targets").strip(),
+    "topic": os.environ.get("KAFKA_RADAR_TOPIC", "ZHUnionTargetTopicV3").strip(),
     "group_id": os.environ.get(
         "KAFKA_RADAR_GROUP_ID",
         "wanana-radar-worker",

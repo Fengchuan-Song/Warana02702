@@ -1,4 +1,4 @@
-"""Consume raw Protobuf Radar targets from Kafka and publish live state."""
+"""Consume JSON Radar targets from Kafka and publish live state."""
 
 import time
 
@@ -6,18 +6,16 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from google.protobuf.message import DecodeError
-
 from AISData.consumers import AisConsumer
-from AISData.kafka_protobuf import TIMESTAMP_DIVISORS
+from AISData.kafka_json import TIMESTAMP_DIVISORS
 from AISRadar.fusion_coordination import enqueue_radar_fusion_event
-from AISRadar.kafka_protobuf import parse_radar_protobuf, radar_rows_for_fusion
+from AISRadar.kafka_json import parse_radar_json, radar_rows_for_fusion
 from AISRadar.radar_state import merge_radar_state
 
 
 class Command(BaseCommand):
     help = (
-        "Consumes raw TargetProtoListZ messages from Kafka, retains Radar "
+        "Consumes JSON target messages from Kafka, retains Radar "
         "targets, and publishes Redis/WebSocket/JPDA input state."
     )
 
@@ -187,10 +185,11 @@ class Command(BaseCommand):
                     continue
 
                 try:
-                    parsed = parse_radar_protobuf(
+                    parsed = parse_radar_json(
                         message.value(),
                         timestamp_unit=config.get("timestamp_unit", "milliseconds"),
                         accept_sim=bool(config.get("accept_sim", False)),
+                        fallback_target_id=message.key(),
                     )
                     result = self.process_rows(
                         parsed.rows,
@@ -199,7 +198,7 @@ class Command(BaseCommand):
                         partition=message.partition(),
                         offset=message.offset(),
                     )
-                except (DecodeError, TypeError, ValueError) as exc:
+                except (TypeError, ValueError) as exc:
                     self.stderr.write(
                         self.style.ERROR(
                             "Invalid Kafka Radar payload: "
